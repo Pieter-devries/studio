@@ -40,11 +40,31 @@ const prompt = ai.definePrompt({
   output: {schema: SyncLyricsWithAudioOutputSchema},
   prompt: `You are an AI that synchronizes lyrics with an audio file. You will receive the lyrics and the audio file.
 
-  You must output a JSON object containing a 'syncedLyrics' property, which is an array of objects. Each object in the array must have a "time" key (the start time in milliseconds as a number) and a "text" key (the lyric line as a string).
+  You must output ONLY a valid JSON object that adheres to the provided schema. The JSON object should contain a 'syncedLyrics' property, which is an array of objects. Each object in the array must have a "time" key (the start time in milliseconds as a number) and a "text" key (the lyric line as a string). Do not include any other text or formatting.
 
   Lyrics: {{{lyrics}}}
   Audio: {{media url=audioDataUri}}
   `,
+  config: {
+    safetySettings: [
+      {
+        category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+        threshold: 'BLOCK_NONE',
+      },
+      {
+        category: 'HARM_CATEGORY_HATE_SPEECH',
+        threshold: 'BLOCK_NONE',
+      },
+      {
+        category: 'HARM_CATEGORY_HARASSMENT',
+        threshold: 'BLOCK_NONE',
+      },
+      {
+        category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+        threshold: 'BLOCK_NONE',
+      },
+    ],
+  },
 });
 
 const syncLyricsWithAudioFlow = ai.defineFlow(
@@ -55,6 +75,9 @@ const syncLyricsWithAudioFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    if (!output || !output.syncedLyrics || !Array.isArray(output.syncedLyrics)) {
+        throw new Error('Failed to synchronize lyrics. The AI did not return valid data in the expected format.');
+    }
+    return output;
   }
 );
