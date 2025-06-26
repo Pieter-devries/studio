@@ -65,11 +65,11 @@ The output must be a valid JSON object. This JSON object must contain a single k
     b. "startTime": The start time of that specific word in MILLISECONDS (as a number).
 
 CRITICAL TIMING INSTRUCTIONS:
-1.  First, analyze the ENTIRE audio file to determine its total length.
-2.  Then, assign a 'startTime' to every single word in the provided lyrics. This timestamp must be in MILLISECONDS.
-3.  The 'startTime' for each line MUST be the 'startTime' of the very first word in that line.
-4.  The timestamps MUST be distributed throughout the entire song's duration. They must directly correspond to when the words are actually sung in the audio.
-5.  FAILURE MODE: DO NOT cluster all timestamps at the beginning of the song. This is a critical error. The timestamps must be sequential and realistically spaced out across the song's full length. Before outputting the final JSON, double-check your work to ensure the timestamps are correct.
+1.  First, analyze the ENTIRE audio file. This is mandatory. Do not stop analyzing partway through.
+2.  Assign a 'startTime' in MILLISECONDS to EVERY SINGLE WORD in the provided lyrics. This is the most important part of your task.
+3.  The 'startTime' for each LINE MUST be exactly equal to the 'startTime' of the very first word in that line.
+4.  The 'startTime' for each WORD MUST be sequential and must increase from the previous word's start time. A word's start time cannot be earlier than the word before it. The timestamps must be distributed realistically across the entire duration of the audio.
+5.  FINAL CHECK: Before producing the output, you MUST re-read your generated JSON to confirm that the word timestamps continue to increase sequentially until the very end of the song. Any failure to timestamp the entire song is a critical error.
 
 Here is the audio:
 {{media url=audioDataUri}}
