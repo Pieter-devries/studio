@@ -1,5 +1,3 @@
-'use server';
-
 import {z} from 'genkit';
 
 // From generate-dynamic-background.ts
