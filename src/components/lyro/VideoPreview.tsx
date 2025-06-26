@@ -38,7 +38,7 @@ interface WrappedLine {
 }
 
 // --- Constants ---
-const LYRIC_OFFSET_MS = 500;
+const LYRIC_OFFSET_MS = 0; // Rely purely on the AI's timing.
 const FADE_DURATION_MS = 1000;
 const EXPORT_FPS = 30;
 const easeInOutCubic = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -296,7 +296,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       recorder.ondataavailable = e => e.data.size > 0 && recordedChunks.push(e.data);
       
       recorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: mimeType });
+        const blob = new Blob(recordedChunks, { type: 'video/mp4' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
