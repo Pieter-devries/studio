@@ -107,37 +107,66 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
     
+    const wrapText = (
+      context: CanvasRenderingContext2D,
+      text: string,
+      x: number,
+      y: number,
+      maxWidth: number,
+      lineHeight: number
+    ) => {
+      const words = text.split(' ');
+      let line = '';
+      const lines = [];
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = context.measureText(testLine);
+        const testWidth = metrics.width;
+        if (testWidth > maxWidth && n > 0) {
+          lines.push(line.trim());
+          line = words[n] + ' ';
+        } else {
+          line = testLine;
+        }
+      }
+      lines.push(line.trim());
+      
+      const totalTextHeight = (lines.length -1) * lineHeight;
+      const startY = y - totalTextHeight / 2;
+      
+      lines.forEach((line, index) => {
+        if(line) {
+          context.fillText(line, x, startY + index * lineHeight);
+        }
+      });
+    };
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Draw background with Ken Burns effect
     if (backgroundImage.complete && backgroundImage.naturalWidth > 0) {
         const progress = duration > 0 ? currentTime / duration : 0;
         
-        // 1. Zoom from 1x to 1.15x
         const scale = 1.0 + 0.15 * progress;
-        
-        // 2. Pan from center to slightly top-left
         const panX = 0.5 - 0.05 * progress;
         const panY = 0.5 - 0.05 * progress;
 
-        // 3. "cover" aspect ratio logic
         const imgRatio = backgroundImage.naturalWidth / backgroundImage.naturalHeight;
         const canvasRatio = canvas.width / canvas.height;
         
         let sWidth = backgroundImage.naturalWidth;
         let sHeight = backgroundImage.naturalHeight;
         
-        if (imgRatio > canvasRatio) { // image wider than canvas
+        if (imgRatio > canvasRatio) {
             sWidth = backgroundImage.naturalHeight * canvasRatio;
-        } else { // image taller than canvas
+        } else {
             sHeight = backgroundImage.naturalWidth / canvasRatio;
         }
 
-        // 4. Apply zoom
         const focalWidth = sWidth / scale;
         const focalHeight = sHeight / scale;
         
-        // 5. Apply pan
         const sx = ((backgroundImage.naturalWidth - sWidth) / 2) + ((sWidth - focalWidth) * panX);
         const sy = ((backgroundImage.naturalHeight - sHeight) / 2) + ((sHeight - focalHeight) * panY);
         
@@ -154,12 +183,17 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       ctx.fillStyle = 'white';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = 'bold 48px Inter, sans-serif';
+      ctx.font = 'bold 44px Inter, sans-serif';
       ctx.shadowColor = 'black';
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 12;
       ctx.shadowOffsetX = 2;
       ctx.shadowOffsetY = 2;
-      ctx.fillText(currentLyricText, canvas.width / 2, canvas.height * 0.85);
+
+      const maxWidth = canvas.width * 0.9;
+      const lineHeight = 52;
+      const x = canvas.width / 2;
+      const y = canvas.height * 0.85;
+      wrapText(ctx, currentLyricText, x, y, maxWidth, lineHeight);
     }
     
   }, [backgroundImage, currentLyric, currentTime, duration]);
