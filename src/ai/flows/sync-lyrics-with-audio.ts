@@ -3,7 +3,7 @@
  * @fileOverview Synchronizes lyrics with audio using AI.
  *
  * - syncLyricsWithAudio - A function that handles the lyric synchronization process.
- * - SyncLyricsWithAudioInput - The input type for the syncLyricsWithAudio function.
+ * - SyncLyricsWithAudioInput - The input type for the syncLyricsWithaudio function.
  * - SyncLyricsWithAudioOutput - The return type for the syncLyricsWithAudio function.
  */
 
@@ -45,17 +45,6 @@ const SyncLyricsWithAudioOutputSchema = z.object({
 });
 export type SyncLyricsWithAudioOutput = z.infer<typeof SyncLyricsWithAudioOutputSchema>;
 
-// A simpler schema for the AI to generate, which we will process later.
-const AIWordTimingSchema = z.object({
-  words: z.array(
-    z.object({
-      text: z.string().describe('A single word from the lyrics.'),
-      startTime: z
-        .number()
-        .describe('The start time of the word in milliseconds.'),
-    })
-  ),
-});
 
 export async function syncLyricsWithAudio(
   input: SyncLyricsWithAudioInput
@@ -65,20 +54,35 @@ export async function syncLyricsWithAudio(
 
 const prompt = ai.definePrompt({
   name: 'syncLyricsWithAudioPrompt',
-  model: 'googleai/gemini-2.5-flash',
+  model: 'googleai/gemini-1.5-flash-latest',
   input: {schema: SyncLyricsWithAudioInputSchema},
-  output: {schema: AIWordTimingSchema},
-  prompt: `You are an expert AI at synchronizing song lyrics with an audio file. Your task is to listen to the ENTIRE audio file and determine the precise start time for EVERY SINGLE WORD of the provided lyrics.
+  output: {schema: SyncLyricsWithAudioOutputSchema},
+  prompt: `You are an expert AI at synchronizing song lyrics with an audio file. Your task is to listen to the ENTIRE audio file and determine the precise start time for EVERY line and EVERY WORD of the provided lyrics.
 
-The output must be a valid JSON object. This JSON object must contain a single key, "words", which is an array of objects. Each object in the array represents a single word and must have TWO keys:
-1.  "text": The word from the lyrics (as a string).
-2.  "startTime": The start time of that specific word in MILLISECONDS (as a number).
+The output must be a valid JSON object matching this structure:
+{
+  "syncedLyrics": [
+    {
+      "line": "The full text of the lyric line.",
+      "startTime": 1234,
+      "words": [
+        {
+          "text": "The",
+          "startTime": 1234
+        }
+      ]
+    }
+  ]
+}
 
 CRITICAL INSTRUCTIONS:
-1.  First, analyze the ENTIRE audio file from beginning to end. This is mandatory.
-2.  Create a timestamped word object for EVERY word in the lyrics. Do not skip any.
-3.  The 'startTime' for each word MUST be sequential and must increase from the previous word's start time. The timestamps must be distributed realistically across the entire duration of the audio.
-4.  FINAL CHECK: Before producing the output, you MUST re-read your generated JSON to confirm that you have created an entry for every word and that the timestamps continue to increase sequentially until the very end of the song. Any failure to timestamp the entire song is a critical error.
+1.  Analyze the ENTIRE audio file from beginning to end. This is mandatory.
+2.  The output must contain a "syncedLyrics" array.
+3.  Each object in the array must represent a line from the original lyrics, in the correct order.
+4.  For each line, you must provide a "words" array, containing every single word from that line.
+5.  Preserve original punctuation and capitalization for all text.
+6.  Provide an accurate "startTime" in MILLISECONDS for every line and every word.
+7.  The timestamps must be sequential and increase realistically across the entire duration of the audio. Any failure to timestamp the entire song is a critical error.
 
 Here is the audio:
 {{media url=audioDataUri}}
@@ -116,54 +120,14 @@ const syncLyricsWithAudioFlow = ai.defineFlow(
     outputSchema: SyncLyricsWithAudioOutputSchema,
   },
   async input => {
-    // Step 1: Get the simple, flat list of timed words from the AI.
+    // Get the fully structured object from the AI.
     const {output} = await prompt(input);
-    if (!output || !output.words || !Array.isArray(output.words) || output.words.length === 0) {
+    if (!output || !output.syncedLyrics || !Array.isArray(output.syncedLyrics) || output.syncedLyrics.length === 0) {
       throw new Error(
-        'Failed to synchronize lyrics. The AI did not return a valid word list.'
+        'Failed to synchronize lyrics. The AI did not return a valid nested structure.'
       );
     }
-    const timedWords = output.words;
-
-    // Step 2: Reconstruct the nested structure required by the frontend.
-    const originalLines = input.lyrics.trim().split('\n').filter(line => line.trim() !== '');
-    const syncedLyrics: z.infer<typeof SyncedLyricSchema>[] = [];
-    let wordCursor = 0;
-
-    for (const lineText of originalLines) {
-        const wordsInLine = lineText.trim().split(/\s+/).filter(w => w.length > 0);
-        if (wordsInLine.length === 0) continue;
-
-        const lineWords: z.infer<typeof WordSchema>[] = [];
-        
-        if (wordCursor + wordsInLine.length > timedWords.length) {
-            console.error('Mismatch between lyric word count and AI timed word count. Halting reconstruction.');
-            break; 
-        }
-
-        for (let i = 0; i < wordsInLine.length; i++) {
-            // We use the original word text to preserve punctuation and casing,
-            // but the timing from the corresponding AI-generated word.
-            lineWords.push({
-                text: wordsInLine[i],
-                startTime: timedWords[wordCursor].startTime
-            });
-            wordCursor++;
-        }
-
-        if (lineWords.length > 0) {
-            syncedLyrics.push({
-                line: lineText,
-                startTime: lineWords[0].startTime,
-                words: lineWords,
-            });
-        }
-    }
-    
-    if (syncedLyrics.length === 0 && originalLines.length > 0) {
-        throw new Error("Failed to reconstruct lyrics from AI output. The word list may have been empty or invalid.");
-    }
-
-    return { syncedLyrics };
+    // No reconstruction needed! Just return the output.
+    return output;
   }
 );
