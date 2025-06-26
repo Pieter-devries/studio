@@ -8,7 +8,6 @@ import { syncLyricsWithAudio } from '@/ai/flows/sync-lyrics-with-audio';
 import { InputForm } from '@/components/lyro/InputForm';
 import { LoadingIndicator } from '@/components/lyro/LoadingIndicator';
 import { VideoPreview, type VideoData } from '@/components/lyro/VideoPreview';
-import { parseSyncedLyrics } from '@/lib/utils';
 
 
 export default function Home() {
@@ -39,7 +38,7 @@ export default function Home() {
         throw new Error('AI generation failed. Please try again.');
       }
       
-      const parsedLyrics = parseSyncedLyrics(syncResult.syncedLyrics);
+      const parsedLyrics = syncResult.syncedLyrics;
 
       if (parsedLyrics.length === 0) {
         throw new Error('Failed to parse synchronized lyrics. The AI may have returned an unexpected format.');

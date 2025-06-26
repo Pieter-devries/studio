@@ -14,14 +14,19 @@ const SyncLyricsWithAudioInputSchema = z.object({
   audioDataUri: z
     .string()
     .describe(
-      'The audio file as a data URI that must include a MIME type and use Base64 encoding. Expected format: \'data:<mimetype>;base64,<encoded_data>\'.' // Corrected typo here
+      'The audio file as a data URI that must include a MIME type and use Base64 encoding. Expected format: \'data:<mimetype>;base64,<encoded_data>\'.'
     ),
   lyrics: z.string().describe('The lyrics of the song.'),
 });
 export type SyncLyricsWithAudioInput = z.infer<typeof SyncLyricsWithAudioInputSchema>;
 
+const SyncedLyricSchema = z.object({
+  time: z.number().describe('The start time of the lyric in milliseconds.'),
+  text: z.string().describe('The text of the lyric line.'),
+});
+
 const SyncLyricsWithAudioOutputSchema = z.object({
-  syncedLyrics: z.string().describe('The lyrics with timing information.'),
+  syncedLyrics: z.array(SyncedLyricSchema).describe('An array of synchronized lyric objects.'),
 });
 export type SyncLyricsWithAudioOutput = z.infer<typeof SyncLyricsWithAudioOutputSchema>;
 
@@ -33,9 +38,9 @@ const prompt = ai.definePrompt({
   name: 'syncLyricsWithAudioPrompt',
   input: {schema: SyncLyricsWithAudioInputSchema},
   output: {schema: SyncLyricsWithAudioOutputSchema},
-  prompt: `You are an AI that synchronizes lyrics with an audio file.  You will receive the lyrics and the audio file.
+  prompt: `You are an AI that synchronizes lyrics with an audio file. You will receive the lyrics and the audio file.
 
-  You will output the lyrics with timing information, so that each line of lyrics is associated with a start time in milliseconds. Ensure the format is correct.
+  You must output a JSON object containing a 'syncedLyrics' property, which is an array of objects. Each object in the array must have a "time" key (the start time in milliseconds as a number) and a "text" key (the lyric line as a string).
 
   Lyrics: {{{lyrics}}}
   Audio: {{media url=audioDataUri}}
