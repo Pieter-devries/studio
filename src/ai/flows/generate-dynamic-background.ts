@@ -10,6 +10,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import { BackgroundSceneSchema } from '@/ai/schema';
 
 const GenerateDynamicBackgroundInputSchema = z.object({
   audioDataUri: z
@@ -21,16 +22,6 @@ const GenerateDynamicBackgroundInputSchema = z.object({
 });
 export type GenerateDynamicBackgroundInput = z.infer<typeof GenerateDynamicBackgroundInputSchema>;
 
-const BackgroundSceneSchema = z.object({
-  startTime: z
-    .number()
-    .describe('The time in milliseconds when this background should start.'),
-  backgroundImageDataUri: z
-    .string()
-    .describe(
-      'The generated background image as a data URI that must include a MIME type and use Base64 encoding. Expected format: data:<mimetype>;base64,<encoded_data>.'
-    ),
-});
 
 const GenerateDynamicBackgroundOutputSchema = z.object({
   scenes: z
@@ -68,10 +59,10 @@ const imagePromptsPrompt = ai.definePrompt({
   },
   prompt: `You are a music video director. Analyze the provided song lyrics and create a series of detailed image generation prompts for a music video.
 
-Divide the song into 4-6 thematically distinct scenes. Each scene should last approximately 10-20 seconds.
+Your task is to create enough scenes to cover the entire duration of the song. The number of scenes should be appropriate for a typical music video, ensuring there are visual changes throughout.
 
 For each scene, provide:
-1.  A "startTime" in MILLISECONDS. The first scene must start at time 0.
+1.  A "startTime" in MILLISECONDS. The first scene must start at time 0. Subsequent start times should be spaced out realistically across the song.
 2.  A "prompt" that is a detailed, visually rich description for an image generation model. IMPORTANT: The prompts must be safe for all audiences and must NOT include depictions of firearms, weapons, or violence. Instead of literal interpretations, focus on metaphorical or abstract concepts representing freedom, Americana, and the open road. For example, instead of a gun rack, describe a beautiful sunset over a vast, open landscape. The prompts should focus on expansive landscapes, symbolic objects, and abstract visuals. AVOID close-ups of people to prevent distorted features. If people are included, they should be distant, out of focus, or silhouetted. Each prompt MUST end with the phrase ", cinematic, 16:9 aspect ratio, high resolution".
 
 Lyrics:

@@ -9,6 +9,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import { SyncedLyricSchema } from '@/ai/schema';
 
 const SyncLyricsWithAudioInputSchema = z.object({
   audioDataUri: z
@@ -21,23 +22,6 @@ const SyncLyricsWithAudioInputSchema = z.object({
 export type SyncLyricsWithAudioInput = z.infer<typeof SyncLyricsWithAudioInputSchema>;
 
 // The final output structure required by the frontend
-const WordSchema = z.object({
-  text: z.string().describe('The word.'),
-  startTime: z
-    .number()
-    .describe('The start time of the word in milliseconds.'),
-});
-
-const SyncedLyricSchema = z.object({
-  line: z.string().describe('The full text of the lyric line.'),
-  startTime: z
-    .number()
-    .describe('The start time of the lyric line in milliseconds.'),
-  words: z
-    .array(WordSchema)
-    .describe('An array of synchronized words in the line.'),
-});
-
 const SyncLyricsWithAudioOutputSchema = z.object({
   syncedLyrics: z
     .array(SyncedLyricSchema)
@@ -75,14 +59,12 @@ The output must be a valid JSON object matching this structure:
   ]
 }
 
-CRITICAL INSTRUCTIONS:
-1.  Analyze the ENTIRE audio file from beginning to end. This is mandatory.
-2.  The output must contain a "syncedLyrics" array.
-3.  Each object in the array must represent a line from the original lyrics, in the correct order.
-4.  For each line, you must provide a "words" array, containing every single word from that line.
-5.  Preserve original punctuation and capitalization for all text.
-6.  Provide an accurate "startTime" in MILLISECONDS for every line and every word.
-7.  The timestamps must be sequential and increase realistically across the entire duration of the audio. Any failure to timestamp the entire song is a critical error.
+CRITICAL INSTRUCTIONS - FOLLOW THESE EXACTLY:
+1.  **MANDATORY FULL ANALYSIS:** You MUST analyze the audio file from the absolute beginning to the absolute end. Do not stop early. Incomplete analysis is a failure.
+2.  **COMPLETE OUTPUT:** Your response MUST contain a timestamp for every single line and every single word from the provided lyrics. The final word of the song must have a timestamp.
+3.  **DATA INTEGRITY:** Preserve original punctuation and capitalization for all text fields ("line" and "text"). Do not alter the lyrics.
+4.  **ACCURATE TIMESTAMPS:** Provide a "startTime" in MILLISECONDS for every line and every word. The timestamps must be sequential and increase realistically throughout the song's duration.
+5.  **FINAL VERIFICATION:** Before producing the final output, mentally review your work. Check: Is the *entire* song transcribed? Does the *last word* of the song have a timestamp? Are all timestamps sequential? Any failure to timestamp the entire song is a critical error.
 
 Here is the audio:
 {{media url=audioDataUri}}

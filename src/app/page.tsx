@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import { Wand2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { generateDynamicBackground } from '@/ai/flows/generate-dynamic-background';
-import { syncLyricsWithAudio } from '@/ai/flows/sync-lyrics-with-audio';
+import { orchestrateVideoCreation } from '@/ai/flows/orchestrate-video-creation';
 import { InputForm } from '@/components/lyro/InputForm';
 import { LoadingIndicator } from '@/components/lyro/LoadingIndicator';
 import { VideoPreview, type VideoData } from '@/components/lyro/VideoPreview';
@@ -28,27 +27,27 @@ export default function Home() {
     setStep('loading');
     try {
       const audioDataUri = await fileToDataUri(file);
+      const title = file.name.replace(/\.[^/.]+$/, "");
       
-      const [backgroundResult, syncResult] = await Promise.all([
-        generateDynamicBackground({ audioDataUri, lyrics }),
-        syncLyricsWithAudio({ audioDataUri, lyrics }),
-      ]);
+      const result = await orchestrateVideoCreation({
+        audioDataUri,
+        lyrics,
+        title,
+      });
 
-      if (!backgroundResult.scenes || !syncResult.syncedLyrics) {
+      if (!result.backgroundScenes || !result.syncedLyrics) {
         throw new Error('AI generation failed. Please try again.');
       }
       
-      const parsedLyrics = syncResult.syncedLyrics;
-
-      if (parsedLyrics.length === 0) {
+      if (result.syncedLyrics.length === 0) {
         throw new Error('Failed to parse synchronized lyrics. The AI may have returned an unexpected format.');
       }
 
       setVideoData({
-        audioUrl: audioDataUri,
-        backgroundScenes: backgroundResult.scenes,
-        syncedLyrics: parsedLyrics,
-        title: file.name.replace(/\.[^/.]+$/, ""),
+        audioUrl: result.audioUrl,
+        backgroundScenes: result.backgroundScenes,
+        syncedLyrics: result.syncedLyrics,
+        title: result.title,
       });
       setStep('preview');
       toast({
