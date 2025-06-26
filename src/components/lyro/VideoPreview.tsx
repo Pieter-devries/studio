@@ -37,6 +37,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
 
   const backgroundImage = useMemo(() => {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.src = backgroundUrl;
     return img;
   }, [backgroundUrl]);
@@ -71,11 +72,15 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   }, []);
 
   const currentLyric = useMemo(() => {
-    const nextLyricIndex = syncedLyrics.findIndex(lyric => lyric.time > currentTime * 1000);
-    let currentLyricIndex = nextLyricIndex === -1 ? syncedLyrics.length - 1 : nextLyricIndex - 1;
-    if (currentLyricIndex < 0) currentLyricIndex = 0;
-
-    return syncedLyrics[currentLyricIndex]?.text || '';
+    const currentTimeMs = currentTime * 1000;
+    // Find the last lyric that has a start time before or at the current time.
+    // Use a reverse loop for efficiency.
+    for (let i = syncedLyrics.length - 1; i >= 0; i--) {
+      if (syncedLyrics[i].time <= currentTimeMs) {
+        return syncedLyrics[i].text;
+      }
+    }
+    return ''; // Return empty string if no lyric has started yet.
   }, [currentTime, syncedLyrics]);
 
   const togglePlay = () => {
@@ -100,14 +105,44 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   const drawCanvasFrame = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
-    const audio = audioRef.current;
-    if (!ctx || !canvas || !audio) return;
+    if (!ctx || !canvas) return;
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Draw background
-    if (backgroundImage.complete) {
-        ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+    // Draw background with Ken Burns effect
+    if (backgroundImage.complete && backgroundImage.naturalWidth > 0) {
+        const progress = duration > 0 ? currentTime / duration : 0;
+        
+        // 1. Zoom from 1x to 1.15x
+        const scale = 1.0 + 0.15 * progress;
+        
+        // 2. Pan from center to slightly top-left
+        const panX = 0.5 - 0.05 * progress;
+        const panY = 0.5 - 0.05 * progress;
+
+        // 3. "cover" aspect ratio logic
+        const imgRatio = backgroundImage.naturalWidth / backgroundImage.naturalHeight;
+        const canvasRatio = canvas.width / canvas.height;
+        
+        let sWidth = backgroundImage.naturalWidth;
+        let sHeight = backgroundImage.naturalHeight;
+        
+        if (imgRatio > canvasRatio) { // image wider than canvas
+            sWidth = backgroundImage.naturalHeight * canvasRatio;
+        } else { // image taller than canvas
+            sHeight = backgroundImage.naturalWidth / canvasRatio;
+        }
+
+        // 4. Apply zoom
+        const focalWidth = sWidth / scale;
+        const focalHeight = sHeight / scale;
+        
+        // 5. Apply pan
+        const sx = ((backgroundImage.naturalWidth - sWidth) / 2) + ((sWidth - focalWidth) * panX);
+        const sy = ((backgroundImage.naturalHeight - sHeight) / 2) + ((sHeight - focalHeight) * panY);
+        
+        ctx.drawImage(backgroundImage, sx, sy, focalWidth, focalHeight, 0, 0, canvas.width, canvas.height);
+
         // Add a semi-transparent overlay for better text readability
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -127,11 +162,14 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       ctx.fillText(currentLyricText, canvas.width / 2, canvas.height * 0.85);
     }
     
-    animationFrameRef.current = requestAnimationFrame(drawCanvasFrame);
-  }, [backgroundImage, currentLyric]);
+  }, [backgroundImage, currentLyric, currentTime, duration]);
 
   useEffect(() => {
-    animationFrameRef.current = requestAnimationFrame(drawCanvasFrame);
+    const render = () => {
+      drawCanvasFrame();
+      animationFrameRef.current = requestAnimationFrame(render);
+    };
+    animationFrameRef.current = requestAnimationFrame(render);
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
