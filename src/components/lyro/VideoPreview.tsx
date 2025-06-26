@@ -25,8 +25,12 @@ interface VideoPreviewProps {
   onReset: () => void;
 }
 
-const LYRIC_OFFSET_MS = 500; // 0.5 second offset
+const LYRIC_OFFSET_MS = 500; // Delay to make lyrics appear slightly after they are sung.
 const FADE_DURATION_MS = 1000; // 1 second fade
+
+// Smoother animation timing function
+const easeInOutCubic = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
 
 export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   const { audioUrl, backgroundScenes, syncedLyrics, title } = videoData;
@@ -81,9 +85,10 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   }, []);
 
   const currentLyric = useMemo(() => {
-    const currentTimeMs = currentTime * 1000 + LYRIC_OFFSET_MS;
+    // Subtract the offset to delay the lyric appearance.
+    const effectiveTimeMs = currentTime * 1000 - LYRIC_OFFSET_MS;
     for (let i = syncedLyrics.length - 1; i >= 0; i--) {
-      if (syncedLyrics[i].startTime <= currentTimeMs) {
+      if (syncedLyrics[i].startTime <= effectiveTimeMs) {
         return syncedLyrics[i];
       }
     }
@@ -124,10 +129,11 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         const sceneDuration = sceneEndTime - sceneStartTime;
         const timeInScene = currentTimeMs - sceneStartTime;
         const progress = sceneDuration > 0 ? Math.min(timeInScene / sceneDuration, 1) : 0;
+        const easedProgress = easeInOutCubic(progress);
         
-        const scale = 1.0 + 0.1 * progress;
-        const panX = 0.5 - 0.05 * progress;
-        const panY = 0.5 - 0.05 * progress;
+        const scale = 1.0 + 0.1 * easedProgress;
+        const panX = 0.5 - 0.05 * easedProgress;
+        const panY = 0.5 - 0.05 * easedProgress;
 
         const imgRatio = image.naturalWidth / image.naturalHeight;
         const canvasRatio = canvas.width / canvas.height;
@@ -154,8 +160,12 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         const nextBg = backgroundImages[i + 1];
         return currentTimeMs >= bg.startTime && (!nextBg || currentTimeMs < nextBg.startTime);
     });
-    if (currentSceneIndex === -1) currentSceneIndex = 0;
+    if (currentSceneIndex === -1 && backgroundImages.length > 0) {
+      currentSceneIndex = 0;
+    }
     
+    if (currentSceneIndex === -1) return; // No scenes to draw
+
     const currentScene = backgroundImages[currentSceneIndex];
     const nextScene = backgroundImages[currentSceneIndex + 1];
     
@@ -168,7 +178,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     // Handle fade transition to next scene
     if (nextScene && currentTimeMs > nextScene.startTime - FADE_DURATION_MS) {
         const fadeProgress = (currentTimeMs - (nextScene.startTime - FADE_DURATION_MS)) / FADE_DURATION_MS;
-        ctx.globalAlpha = Math.min(fadeProgress, 1.0);
+        ctx.globalAlpha = Math.min(easeInOutCubic(fadeProgress), 1.0);
         const nextSceneEndTime = backgroundImages[currentSceneIndex + 2] ? backgroundImages[currentSceneIndex + 2].startTime : duration * 1000;
         drawKenBurns(nextScene.image, nextScene.startTime, nextSceneEndTime);
         ctx.globalAlpha = 1.0;
@@ -226,13 +236,15 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
 
 
         // Draw text word by word for highlighting
+        const effectiveTimeMs = currentTimeMs - LYRIC_OFFSET_MS;
+
         lines.forEach((line, lineIndex) => {
             const lineY = startY + lineIndex * LINE_HEIGHT;
             let currentX = (canvas.width - ctx.measureText(line.text).width) / 2;
             
             ctx.textAlign = 'left';
             line.words.forEach(word => {
-                const isSung = currentTimeMs >= word.startTime + LYRIC_OFFSET_MS;
+                const isSung = effectiveTimeMs >= word.startTime;
                 ctx.fillStyle = isSung ? 'hsl(170 58% 54%)' : 'white';
                 ctx.fillText(word.text, currentX, lineY);
                 currentX += ctx.measureText(word.text + ' ').width;
@@ -318,6 +330,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   };
 
   const formatTime = (seconds: number) => {
+    if (isNaN(seconds) || seconds < 0) return '0:00';
     const minutes = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
