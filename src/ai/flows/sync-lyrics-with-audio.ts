@@ -52,7 +52,7 @@ export async function syncLyricsWithAudio(
 
 const prompt = ai.definePrompt({
   name: 'syncLyricsWithAudioPrompt',
-  model: 'googleai/gemini-1.5-pro-latest',
+  model: 'googleai/gemini-1.5-flash-latest',
   input: {schema: SyncLyricsWithAudioInputSchema},
   output: {schema: SyncLyricsWithAudioOutputSchema},
   prompt: `You are an expert AI at synchronizing song lyrics with an audio file. Your task is to listen to the audio and determine the precise start time for each LINE and each WORD of the provided lyrics.
