@@ -240,7 +240,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         });
     }
 
-  }, [backgroundImage, currentLyric, currentTime, duration, backgroundImages]);
+  }, [currentLyric, currentTime, duration, backgroundImages]);
 
   useEffect(() => {
     const render = () => {
