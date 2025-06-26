@@ -72,7 +72,7 @@ Divide the song into 4-6 thematically distinct scenes. Each scene should last ap
 
 For each scene, provide:
 1.  A "startTime" in MILLISECONDS. The first scene must start at time 0.
-2.  A "prompt" that is a detailed, visually rich description for an image generation model. IMPORTANT: The prompts must be safe for all audiences and must NOT include depictions of firearms, weapons, or violence. Instead of literal interpretations, focus on metaphorical or abstract concepts representing freedom, Americana, and the open road. For example, instead of a gun rack, describe a beautiful sunset over a vast, open landscape.
+2.  A "prompt" that is a detailed, visually rich description for an image generation model. IMPORTANT: The prompts must be safe for all audiences and must NOT include depictions of firearms, weapons, or violence. Instead of literal interpretations, focus on metaphorical or abstract concepts representing freedom, Americana, and the open road. For example, instead of a gun rack, describe a beautiful sunset over a vast, open landscape. Each prompt MUST end with the phrase ", cinematic, 16:9 aspect ratio, high resolution".
 
 Lyrics:
 {{{lyrics}}}

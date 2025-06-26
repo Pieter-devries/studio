@@ -211,12 +211,19 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       setCurrentTime(audio.currentTime);
     };
 
+    const handleTimeUpdate = () => {
+      // Update UI state at a reasonable rate for the slider
+      setCurrentTime(audio.currentTime);
+    };
+    
     const handleEnded = () => {
         setIsPlaying(false);
-        setCurrentTime(audio.duration); // Ensure slider goes to the end
+        // On end, ensure the UI shows the full duration.
+        setCurrentTime(audio.duration);
     };
 
     audio.addEventListener('loadeddata', setAudioData);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('ended', handleEnded);
 
     if (!isRecording) {
@@ -225,23 +232,24 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     
     return () => {
       audio.removeEventListener('loadeddata', setAudioData);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('ended', handleEnded);
     };
   }, [isRecording]);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    
+    // This effect runs the animation loop ONLY.
+    // It reads the audio time directly in drawCanvasFrame for smoothness.
     const render = () => {
-      setCurrentTime(audio.currentTime);
       drawCanvasFrame();
       animationFrameRef.current = requestAnimationFrame(render);
     };
     animationFrameRef.current = requestAnimationFrame(render);
     
     return () => {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
     };
   }, [drawCanvasFrame]);
 

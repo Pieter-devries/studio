@@ -63,12 +63,13 @@ The output must be a valid JSON object. This JSON object must contain a single k
     a. "text": The individual word (as a string).
     b. "startTime": The start time of that specific word in MILLISECONDS (as a number).
 
-IMPORTANT TIMING RULES:
-- Timestamps must be spread out across the entire duration of the song, corresponding to when the words are actually sung.
-- Line start times must be in ascending order.
-- A word's start time must not be earlier than its line's start time.
-- The start time for the first line should be close to when the singing starts, not necessarily 0.
-- Do not cram all timestamps at the beginning of the song.
+CRITICAL TIMING INSTRUCTIONS:
+- The timestamps MUST be distributed throughout the entire song's duration. They must directly correspond to when the words are actually sung in the audio.
+- DO NOT cluster all timestamps at the beginning. This is a common failure mode and must be avoided.
+- The 'startTime' for each line must be the 'startTime' of the first word in that line.
+- Each word's 'startTime' must be greater than or equal to the previous word's 'startTime'.
+- The first line's 'startTime' should be when the singing actually begins, which may not be 0ms.
+- Before outputting the final JSON, double-check your work to ensure the timestamps are sequential and realistically spaced out across the song's full length.
 
 Analyze the audio very carefully to ensure the timestamps are accurate and reflect the exact moment each line and word is sung.
 
@@ -78,8 +79,7 @@ Here is the audio:
 Here are the lyrics:
 {{{lyrics}}}
 
-Produce ONLY the JSON output, with no other text or explanation.
-`,
+Produce ONLY the JSON output, with no other text or explanation.`,
   config: {
     safetySettings: [
       {
