@@ -12,6 +12,44 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 import { BackgroundSceneSchema } from '@/ai/schema';
 
+// Helper functions for fallback gradient generation
+function getThemeGradient(prompt: string): [string, string] {
+  const lowerPrompt = prompt.toLowerCase();
+  
+  // Theme-based color selection
+  if (lowerPrompt.includes('sunset') || lowerPrompt.includes('gold') || lowerPrompt.includes('warm')) {
+    return ['#FF7F50', '#FFD700']; // Orange to gold
+  } else if (lowerPrompt.includes('mountain') || lowerPrompt.includes('sky') || lowerPrompt.includes('blue')) {
+    return ['#4169E1', '#87CEEB']; // Royal blue to sky blue
+  } else if (lowerPrompt.includes('field') || lowerPrompt.includes('green') || lowerPrompt.includes('nature')) {
+    return ['#228B22', '#90EE90']; // Forest green to light green
+  } else if (lowerPrompt.includes('night') || lowerPrompt.includes('dark') || lowerPrompt.includes('star')) {
+    return ['#191970', '#4B0082']; // Midnight blue to indigo
+  } else if (lowerPrompt.includes('desert') || lowerPrompt.includes('sand') || lowerPrompt.includes('dust')) {
+    return ['#CD853F', '#F4A460']; // Peru to sandy brown
+  } else {
+    return ['#6A5ACD', '#9370DB']; // Slate blue to medium purple (default)
+  }
+}
+
+function createGradientDataUri(colors: [string, string]): string {
+  // Create a simple SVG gradient
+  const [color1, color2] = colors;
+  const svg = `
+    <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:${color1};stop-opacity:1" />
+          <stop offset="100%" style="stop-color:${color2};stop-opacity:1" />
+        </linearGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#grad)" />
+    </svg>
+  `.trim();
+  
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
 const GenerateDynamicBackgroundInputSchema = z.object({
   audioDataUri: z
     .string()
@@ -51,24 +89,44 @@ const ImagePromptSuggestionSchema = z.object({
 
 const imagePromptsPrompt = ai.definePrompt({
   name: 'generateImagePrompts',
-  input: {schema: z.object({lyrics: z.string()})},
+  input: {schema: z.object({
+    lyrics: z.string(),
+    audioDataUri: z.string().describe('The audio file to analyze for duration and pacing'),
+  })},
   output: {
     schema: z.object({
       prompts: z.array(ImagePromptSuggestionSchema),
     }),
   },
-  prompt: `You are a music video director. Analyze the provided song lyrics and create a series of detailed image generation prompts for a music video.
+  prompt: `You are a music video director. Analyze the provided song audio and lyrics to create a series of detailed image generation prompts for a music video.
 
-Your task is to create enough scenes to cover the entire duration of the song. The number of scenes should be appropriate for a typical music video, ensuring there are visual changes throughout.
+CRITICAL TIMING INSTRUCTIONS:
+1. Listen to the ENTIRE audio file to determine the exact song duration
+2. Create scenes that are evenly distributed throughout the song duration
+3. Generate 6-10 scenes total (one scene every 30-60 seconds for optimal pacing)
+4. The first scene MUST start at time 0
+5. Distribute subsequent scenes evenly across the song length with consistent intervals
+6. Ensure the last scene starts within the final 30 seconds of the song
 
 For each scene, provide:
-1.  A "startTime" in MILLISECONDS. The first scene must start at time 0. Subsequent start times should be spaced out realistically across the song.
-2.  A "prompt" that is a detailed, visually rich description for an image generation model. IMPORTANT: The prompts must be safe for all audiences and must NOT include depictions of firearms, weapons, or violence. Instead of literal interpretations, focus on metaphorical or abstract concepts representing freedom, Americana, and the open road. For example, instead of a gun rack, describe a beautiful sunset over a vast, open landscape. The prompts should focus on expansive landscapes, symbolic objects, and abstract visuals. AVOID close-ups of people to prevent distorted features. If people are included, they should be distant, out of focus, or silhouetted. Each prompt MUST end with the phrase ", cinematic, 16:9 aspect ratio, high resolution".
+1. A "startTime" in MILLISECONDS based on actual audio duration analysis
+2. A "prompt" that is a detailed, visually rich description for an image generation model
 
-Lyrics:
+PROMPT REQUIREMENTS:
+- Safe for all audiences, NO weapons, violence, or inappropriate content
+- Focus on metaphorical and abstract concepts representing the song's mood
+- Emphasize expansive landscapes, symbolic objects, and abstract visuals
+- AVOID close-ups of people to prevent distorted features
+- If people are included, they should be distant, out of focus, or silhouetted
+- Each prompt MUST end with ", cinematic, 16:9 aspect ratio, high resolution"
+
+Here is the audio file to analyze:
+{{media url=audioDataUri}}
+
+Lyrics for thematic inspiration:
 {{{lyrics}}}
 
-Generate ONLY the JSON output.`,
+Generate ONLY the JSON output with evenly spaced scenes across the song duration.`,
 });
 
 const generateDynamicBackgroundFlow = ai.defineFlow(
@@ -79,40 +137,52 @@ const generateDynamicBackgroundFlow = ai.defineFlow(
   },
   async input => {
     // Step 1: Generate prompts for each scene
-    const {output} = await imagePromptsPrompt({lyrics: input.lyrics});
+    const {output} = await imagePromptsPrompt({
+      lyrics: input.lyrics,
+      audioDataUri: input.audioDataUri,
+    });
     if (!output?.prompts || output.prompts.length === 0) {
       throw new Error('Could not generate image prompts from lyrics.');
     }
 
-    // Step 2: Generate an image for each prompt in parallel
+    // Step 2: Generate an image for each prompt in parallel with fallback for Google AI service issues
     const imageGenerationPromises = output.prompts.map(async scenePrompt => {
-      const {media} = await ai.generate({
-        model: 'googleai/gemini-2.0-flash-preview-image-generation',
-        prompt: scenePrompt.prompt,
-        config: {
-          responseModalities: ['TEXT', 'IMAGE'],
-          safetySettings: [
-            {category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE'},
-            {category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE'},
-            {category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE'},
-            {category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE'},
-          ],
-        },
-      });
+      try {
+        const {media} = await ai.generate({
+          model: 'googleai/gemini-2.0-flash-preview-image-generation',
+          prompt: scenePrompt.prompt,
+          config: {
+            responseModalities: ['TEXT', 'IMAGE'],
+            safetySettings: [
+              {category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE'},
+              {category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE'},
+              {category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE'},
+              {category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE'},
+            ],
+          },
+        });
 
-      if (!media?.url) {
-        // Fallback to a placeholder if generation fails
-        console.warn(`Image generation failed for prompt: "${scenePrompt.prompt}". Using placeholder.`);
+        if (!media?.url) {
+          throw new Error('No media URL returned');
+        }
+
         return {
           startTime: scenePrompt.startTime,
-          backgroundImageDataUri: 'https://placehold.co/1280x720.png',
+          backgroundImageDataUri: media.url,
+        };
+      } catch (error) {
+        // Enhanced fallback with gradient backgrounds that match the song theme
+        console.warn(`Image generation failed for prompt: "${scenePrompt.prompt}". Using themed fallback. Error:`, error);
+        
+        // Create themed gradient backgrounds based on prompt content
+        const gradientColors = getThemeGradient(scenePrompt.prompt);
+        const gradientDataUri = createGradientDataUri(gradientColors);
+        
+        return {
+          startTime: scenePrompt.startTime,
+          backgroundImageDataUri: gradientDataUri,
         };
       }
-
-      return {
-        startTime: scenePrompt.startTime,
-        backgroundImageDataUri: media.url,
-      };
     });
 
     const scenes = await Promise.all(imageGenerationPromises);
