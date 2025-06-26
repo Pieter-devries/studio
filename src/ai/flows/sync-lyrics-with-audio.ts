@@ -63,7 +63,14 @@ The output must be a valid JSON object. This JSON object must contain a single k
     a. "text": The individual word (as a string).
     b. "startTime": The start time of that specific word in MILLISECONDS (as a number).
 
-Analyze the audio carefully to ensure the timestamps are accurate and reflect when each line and word is actually sung. Pay close attention to pauses and musical interludes. The timestamps should be spread out across the duration of the song. Do not cram all timestamps at the beginning.
+IMPORTANT TIMING RULES:
+- Timestamps must be spread out across the entire duration of the song, corresponding to when the words are actually sung.
+- Line start times must be in ascending order.
+- A word's start time must not be earlier than its line's start time.
+- The start time for the first line should be close to when the singing starts, not necessarily 0.
+- Do not cram all timestamps at the beginning of the song.
+
+Analyze the audio very carefully to ensure the timestamps are accurate and reflect the exact moment each line and word is sung.
 
 Here is the audio:
 {{media url=audioDataUri}}

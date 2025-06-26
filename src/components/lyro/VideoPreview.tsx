@@ -56,70 +56,13 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     });
   }, [backgroundScenes]);
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const setAudioData = () => {
-      setDuration(audio.duration);
-      setCurrentTime(audio.currentTime);
-    };
-
-    const setAudioTime = () => setCurrentTime(audio.currentTime);
-    const handleEnded = () => setIsPlaying(false);
-
-    audio.addEventListener('loadeddata', setAudioData);
-    audio.addEventListener('timeupdate', setAudioTime);
-    audio.addEventListener('ended', handleEnded);
-
-    audio.play().then(() => setIsPlaying(true)).catch(console.error);
-
-    return () => {
-      audio.removeEventListener('loadeddata', setAudioData);
-      audio.removeEventListener('timeupdate', setAudioTime);
-      audio.removeEventListener('ended', handleEnded);
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, []);
-
-  const currentLyric = useMemo(() => {
-    // Subtract the offset to delay the lyric appearance.
-    const effectiveTimeMs = currentTime * 1000 - LYRIC_OFFSET_MS;
-    for (let i = syncedLyrics.length - 1; i >= 0; i--) {
-      if (syncedLyrics[i].startTime <= effectiveTimeMs) {
-        return syncedLyrics[i];
-      }
-    }
-    return null;
-  }, [currentTime, syncedLyrics]);
-
-  const togglePlay = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      audio.play();
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  const handleSeek = (value: number[]) => {
-    const audio = audioRef.current;
-    if (audio) {
-      audio.currentTime = value[0];
-      setCurrentTime(value[0]);
-    }
-  };
-
   const drawCanvasFrame = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
-    if (!ctx || !canvas) return;
+    const audio = audioRef.current;
+    if (!ctx || !canvas || !audio) return;
 
-    const currentTimeMs = currentTime * 1000;
+    const currentTimeMs = audio.currentTime * 1000;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // --- BACKGROUND RENDERING ---
@@ -164,28 +107,39 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       currentSceneIndex = 0;
     }
     
-    if (currentSceneIndex === -1) return; // No scenes to draw
-
-    const currentScene = backgroundImages[currentSceneIndex];
-    const nextScene = backgroundImages[currentSceneIndex + 1];
-    
-    const sceneStartTime = currentScene.startTime;
-    const sceneEndTime = nextScene ? nextScene.startTime : duration * 1000;
-
-    // Draw current scene
-    drawKenBurns(currentScene.image, sceneStartTime, sceneEndTime);
-    
-    // Handle fade transition to next scene
-    if (nextScene && currentTimeMs > nextScene.startTime - FADE_DURATION_MS) {
-        const fadeProgress = (currentTimeMs - (nextScene.startTime - FADE_DURATION_MS)) / FADE_DURATION_MS;
-        ctx.globalAlpha = Math.min(easeInOutCubic(fadeProgress), 1.0);
-        const nextSceneEndTime = backgroundImages[currentSceneIndex + 2] ? backgroundImages[currentSceneIndex + 2].startTime : duration * 1000;
-        drawKenBurns(nextScene.image, nextScene.startTime, nextSceneEndTime);
-        ctx.globalAlpha = 1.0;
+    if (currentSceneIndex !== -1) {
+      const currentScene = backgroundImages[currentSceneIndex];
+      const nextScene = backgroundImages[currentSceneIndex + 1];
+      
+      const sceneStartTime = currentScene.startTime;
+      const sceneEndTime = nextScene ? nextScene.startTime : duration * 1000;
+  
+      // Draw current scene
+      drawKenBurns(currentScene.image, sceneStartTime, sceneEndTime);
+      
+      // Handle fade transition to next scene
+      if (nextScene && currentTimeMs > nextScene.startTime - FADE_DURATION_MS) {
+          const fadeProgress = (currentTimeMs - (nextScene.startTime - FADE_DURATION_MS)) / FADE_DURATION_MS;
+          ctx.globalAlpha = Math.min(easeInOutCubic(fadeProgress), 1.0);
+          const nextSceneEndTime = backgroundImages[currentSceneIndex + 2] ? backgroundImages[currentSceneIndex + 2].startTime : duration * 1000;
+          drawKenBurns(nextScene.image, nextScene.startTime, nextSceneEndTime);
+          ctx.globalAlpha = 1.0;
+      }
     }
 
 
     // --- LYRICS RENDERING ---
+    const effectiveTimeMs = currentTimeMs - LYRIC_OFFSET_MS;
+    let currentLyric: SyncedLyric | null = null;
+    if (syncedLyrics) {
+      for (let i = syncedLyrics.length - 1; i >= 0; i--) {
+        if (syncedLyrics[i].startTime <= effectiveTimeMs) {
+          currentLyric = syncedLyrics[i];
+          break;
+        }
+      }
+    }
+    
     if (currentLyric) {
         const FONT_SIZE = 44;
         const LINE_HEIGHT = 52;
@@ -195,7 +149,6 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
-        // Layout words and lines
         const words = currentLyric.words;
         const lines: { text: string, words: typeof words }[] = [];
         let currentLine = '';
@@ -217,7 +170,6 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         const totalTextHeight = lines.length * LINE_HEIGHT;
         const startY = canvas.height * 0.85 - totalTextHeight / 2;
 
-        // Draw text background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.shadowColor = 'black';
         ctx.shadowBlur = 15;
@@ -234,10 +186,6 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         ctx.fill();
         ctx.shadowColor = 'transparent';
 
-
-        // Draw text word by word for highlighting
-        const effectiveTimeMs = currentTimeMs - LYRIC_OFFSET_MS;
-
         lines.forEach((line, lineIndex) => {
             const lineY = startY + lineIndex * LINE_HEIGHT;
             let currentX = (canvas.width - ctx.measureText(line.text).width) / 2;
@@ -252,18 +200,69 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         });
     }
 
-  }, [currentLyric, currentTime, duration, backgroundImages]);
+  }, [backgroundImages, syncedLyrics, duration]);
 
   useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const setAudioData = () => {
+      setDuration(audio.duration);
+      setCurrentTime(audio.currentTime);
+    };
+
+    const handleEnded = () => {
+        setIsPlaying(false);
+        setCurrentTime(audio.duration); // Ensure slider goes to the end
+    };
+
+    audio.addEventListener('loadeddata', setAudioData);
+    audio.addEventListener('ended', handleEnded);
+
+    if (!isRecording) {
+        audio.play().then(() => setIsPlaying(true)).catch(console.error);
+    }
+    
+    return () => {
+      audio.removeEventListener('loadeddata', setAudioData);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [isRecording]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
     const render = () => {
+      setCurrentTime(audio.currentTime);
       drawCanvasFrame();
       animationFrameRef.current = requestAnimationFrame(render);
     };
     animationFrameRef.current = requestAnimationFrame(render);
+    
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
   }, [drawCanvasFrame]);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleSeek = (value: number[]) => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = value[0];
+      setCurrentTime(value[0]);
+    }
+  };
 
   const handleExport = async () => {
     const canvas = canvasRef.current;
@@ -275,18 +274,26 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
 
     setIsRecording(true);
     toast({ title: 'Recording Started', description: 'Playing audio to capture video. Please wait.' });
+    
+    // Pause and reset audio for recording
+    audio.pause();
+    audio.currentTime = 0;
+    setCurrentTime(0);
+    setIsPlaying(false);
+
 
     recordedChunksRef.current = [];
-    audio.currentTime = 0;
 
     try {
-      const stream = canvas.captureStream(30);
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaElementSource(audio);
-      const dest = audioContext.createMediaStreamDestination();
+      // Need a new audio context for exporting
+      const exportAudioContext = new AudioContext();
+      const source = exportAudioContext.createMediaElementSource(audio);
+      const dest = exportAudioContext.createMediaStreamDestination();
       source.connect(dest);
-      source.connect(audioContext.destination);
+      // Let's not connect to destination to avoid hearing it twice
+      // source.connect(exportAudioContext.destination);
       
+      const stream = canvas.captureStream(30);
       dest.stream.getAudioTracks().forEach(track => stream.addTrack(track));
 
       recorderRef.current = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
@@ -307,20 +314,27 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
+        
         setIsRecording(false);
         toast({ title: 'Export Complete!', description: 'Your video has been downloaded.' });
+        
+        // Cleanup
+        exportAudioContext.close();
+        // Reset the main audio element to its original state
+        audio.muted = false;
       };
 
       const onAudioEnd = () => {
         recorderRef.current?.stop();
         audio.removeEventListener('ended', onAudioEnd);
-        audioContext.close();
       };
       audio.addEventListener('ended', onAudioEnd);
 
       recorderRef.current.start();
+      audio.muted = true; // Mute the original audio element to prevent echo
       await audio.play();
       setIsPlaying(true);
+
 
     } catch (e) {
       console.error(e);
