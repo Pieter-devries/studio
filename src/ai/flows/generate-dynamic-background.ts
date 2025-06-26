@@ -21,11 +21,22 @@ const GenerateDynamicBackgroundInputSchema = z.object({
 });
 export type GenerateDynamicBackgroundInput = z.infer<typeof GenerateDynamicBackgroundInputSchema>;
 
-const GenerateDynamicBackgroundOutputSchema = z.object({
+const BackgroundSceneSchema = z.object({
+  startTime: z
+    .number()
+    .describe('The time in milliseconds when this background should start.'),
   backgroundImageDataUri: z
     .string()
     .describe(
       'The generated background image as a data URI that must include a MIME type and use Base64 encoding. Expected format: data:<mimetype>;base64,<encoded_data>.'
+    ),
+});
+
+const GenerateDynamicBackgroundOutputSchema = z.object({
+  scenes: z
+    .array(BackgroundSceneSchema)
+    .describe(
+      'An array of background scenes, each with a start time and an image data URI.'
     ),
 });
 export type GenerateDynamicBackgroundOutput = z.infer<typeof GenerateDynamicBackgroundOutputSchema>;
@@ -36,17 +47,37 @@ export async function generateDynamicBackground(
   return generateDynamicBackgroundFlow(input);
 }
 
-const prompt = ai.definePrompt({
-  name: 'generateDynamicBackgroundPrompt',
-  input: {schema: GenerateDynamicBackgroundInputSchema},
-  output: {schema: GenerateDynamicBackgroundOutputSchema},
-  prompt: `Given the following song lyrics and audio, generate a background image that reflects the mood and theme of the song. The background should be dynamic and visually interesting.
+const ImagePromptSuggestionSchema = z.object({
+  startTime: z
+    .number()
+    .describe(
+      'The time in milliseconds in the song where this scene should begin.'
+    ),
+  prompt: z
+    .string()
+    .describe('A detailed prompt for an image generation model.'),
+});
 
-Lyrics: {{{lyrics}}}
-Audio: {{media url=audioDataUri}}
+const imagePromptsPrompt = ai.definePrompt({
+  name: 'generateImagePrompts',
+  input: {schema: z.object({lyrics: z.string()})},
+  output: {
+    schema: z.object({
+      prompts: z.array(ImagePromptSuggestionSchema),
+    }),
+  },
+  prompt: `You are a music video director. Analyze the provided song lyrics and create a series of detailed image generation prompts for a music video.
 
-Please provide the image as a data URI.
-`,
+Divide the song into 4-6 thematically distinct scenes. Each scene should last approximately 10-20 seconds.
+
+For each scene, provide:
+1.  A "startTime" in MILLISECONDS. The first scene must start at time 0.
+2.  A "prompt" that is a detailed, visually rich description for an image generation model. The prompt should capture the mood, setting, and action of that part of the song.
+
+Lyrics:
+{{{lyrics}}}
+
+Generate ONLY the JSON output.`,
 });
 
 const generateDynamicBackgroundFlow = ai.defineFlow(
@@ -56,39 +87,45 @@ const generateDynamicBackgroundFlow = ai.defineFlow(
     outputSchema: GenerateDynamicBackgroundOutputSchema,
   },
   async input => {
-    const {media} = await ai.generate({
-      model: 'googleai/gemini-2.0-flash-preview-image-generation',
-      prompt: [
-        {text: `Generate a background image that reflects the mood and theme of the song. Lyrics: ${input.lyrics}`},
-        {media: {url: input.audioDataUri}},
-      ],
-      config: {
-        responseModalities: ['TEXT', 'IMAGE'],
-        safetySettings: [
-          {
-            category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-            threshold: 'BLOCK_NONE',
-          },
-          {
-            category: 'HARM_CATEGORY_HATE_SPEECH',
-            threshold: 'BLOCK_NONE',
-          },
-          {
-            category: 'HARM_CATEGORY_HARASSMENT',
-            threshold: 'BLOCK_NONE',
-          },
-          {
-            category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-            threshold: 'BLOCK_NONE',
-          },
-        ],
-      },
-    });
-
-    if (!media?.url) {
-      throw new Error('No background image was generated.');
+    // Step 1: Generate prompts for each scene
+    const {output} = await imagePromptsPrompt({lyrics: input.lyrics});
+    if (!output?.prompts || output.prompts.length === 0) {
+      throw new Error('Could not generate image prompts from lyrics.');
     }
 
-    return {backgroundImageDataUri: media.url};
+    // Step 2: Generate an image for each prompt in parallel
+    const imageGenerationPromises = output.prompts.map(async scenePrompt => {
+      const {media} = await ai.generate({
+        model: 'googleai/gemini-2.0-flash-preview-image-generation',
+        prompt: scenePrompt.prompt,
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          safetySettings: [
+            {category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE'},
+            {category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE'},
+            {category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE'},
+            {category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE'},
+          ],
+        },
+      });
+
+      if (!media?.url) {
+        // Fallback to a placeholder if generation fails
+        console.warn(`Image generation failed for prompt: "${scenePrompt.prompt}". Using placeholder.`);
+        return {
+          startTime: scenePrompt.startTime,
+          backgroundImageDataUri: 'https://placehold.co/1280x720.png',
+        };
+      }
+
+      return {
+        startTime: scenePrompt.startTime,
+        backgroundImageDataUri: media.url,
+      };
+    });
+
+    const scenes = await Promise.all(imageGenerationPromises);
+
+    return {scenes};
   }
 );

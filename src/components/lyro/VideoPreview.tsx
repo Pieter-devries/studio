@@ -8,9 +8,14 @@ import { useToast } from '@/hooks/use-toast';
 import { Play, Pause, Download, Undo2 } from 'lucide-react';
 import type { SyncedLyric } from '@/lib/utils';
 
+interface BackgroundScene {
+  startTime: number;
+  backgroundImageDataUri: string;
+}
+
 export interface VideoData {
   audioUrl: string;
-  backgroundUrl: string;
+  backgroundScenes: BackgroundScene[];
   syncedLyrics: SyncedLyric[];
   title: string;
 }
@@ -20,8 +25,11 @@ interface VideoPreviewProps {
   onReset: () => void;
 }
 
+const LYRIC_OFFSET_MS = 500; // 0.5 second offset
+const FADE_DURATION_MS = 1000; // 1 second fade
+
 export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
-  const { audioUrl, backgroundUrl, syncedLyrics, title } = videoData;
+  const { audioUrl, backgroundScenes, syncedLyrics, title } = videoData;
   const { toast } = useToast();
 
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -35,12 +43,14 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   const [duration, setDuration] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
 
-  const backgroundImage = useMemo(() => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = backgroundUrl;
-    return img;
-  }, [backgroundUrl]);
+  const backgroundImages = useMemo(() => {
+    return backgroundScenes.map(scene => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = scene.backgroundImageDataUri;
+      return { startTime: scene.startTime, image: img };
+    });
+  }, [backgroundScenes]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -58,7 +68,6 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     audio.addEventListener('timeupdate', setAudioTime);
     audio.addEventListener('ended', handleEnded);
 
-    // Auto-play when component mounts
     audio.play().then(() => setIsPlaying(true)).catch(console.error);
 
     return () => {
@@ -72,15 +81,13 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   }, []);
 
   const currentLyric = useMemo(() => {
-    const currentTimeMs = currentTime * 1000;
-    // Find the last lyric that has a start time before or at the current time.
-    // Use a reverse loop for efficiency.
+    const currentTimeMs = currentTime * 1000 + LYRIC_OFFSET_MS;
     for (let i = syncedLyrics.length - 1; i >= 0; i--) {
-      if (syncedLyrics[i].time <= currentTimeMs) {
-        return syncedLyrics[i].text;
+      if (syncedLyrics[i].startTime <= currentTimeMs) {
+        return syncedLyrics[i];
       }
     }
-    return ''; // Return empty string if no lyric has started yet.
+    return null;
   }, [currentTime, syncedLyrics]);
 
   const togglePlay = () => {
@@ -106,97 +113,134 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
-    
-    const wrapText = (
-      context: CanvasRenderingContext2D,
-      text: string,
-      x: number,
-      y: number,
-      maxWidth: number,
-      lineHeight: number
-    ) => {
-      const words = text.split(' ');
-      let line = '';
-      const lines = [];
 
-      for (let n = 0; n < words.length; n++) {
-        const testLine = line + words[n] + ' ';
-        const metrics = context.measureText(testLine);
-        const testWidth = metrics.width;
-        if (testWidth > maxWidth && n > 0) {
-          lines.push(line.trim());
-          line = words[n] + ' ';
-        } else {
-          line = testLine;
-        }
-      }
-      lines.push(line.trim());
-      
-      const totalTextHeight = (lines.length -1) * lineHeight;
-      const startY = y - totalTextHeight / 2;
-      
-      lines.forEach((line, index) => {
-        if(line) {
-          context.fillText(line, x, startY + index * lineHeight);
-        }
-      });
-    };
-
+    const currentTimeMs = currentTime * 1000;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw background with Ken Burns effect
-    if (backgroundImage.complete && backgroundImage.naturalWidth > 0) {
-        const progress = duration > 0 ? currentTime / duration : 0;
+
+    // --- BACKGROUND RENDERING ---
+    const drawKenBurns = (image: HTMLImageElement, sceneStartTime: number, sceneEndTime: number) => {
+        if (!image.complete || image.naturalWidth === 0) return;
         
-        const scale = 1.0 + 0.15 * progress;
+        const sceneDuration = sceneEndTime - sceneStartTime;
+        const timeInScene = currentTimeMs - sceneStartTime;
+        const progress = sceneDuration > 0 ? Math.min(timeInScene / sceneDuration, 1) : 0;
+        
+        const scale = 1.0 + 0.1 * progress;
         const panX = 0.5 - 0.05 * progress;
         const panY = 0.5 - 0.05 * progress;
 
-        const imgRatio = backgroundImage.naturalWidth / backgroundImage.naturalHeight;
+        const imgRatio = image.naturalWidth / image.naturalHeight;
         const canvasRatio = canvas.width / canvas.height;
         
-        let sWidth = backgroundImage.naturalWidth;
-        let sHeight = backgroundImage.naturalHeight;
+        let sWidth = image.naturalWidth;
+        let sHeight = image.naturalHeight;
         
         if (imgRatio > canvasRatio) {
-            sWidth = backgroundImage.naturalHeight * canvasRatio;
+            sWidth = image.naturalHeight * canvasRatio;
         } else {
-            sHeight = backgroundImage.naturalWidth / canvasRatio;
+            sHeight = image.naturalWidth / canvasRatio;
         }
 
         const focalWidth = sWidth / scale;
         const focalHeight = sHeight / scale;
         
-        const sx = ((backgroundImage.naturalWidth - sWidth) / 2) + ((sWidth - focalWidth) * panX);
-        const sy = ((backgroundImage.naturalHeight - sHeight) / 2) + ((sHeight - focalHeight) * panY);
+        const sx = ((image.naturalWidth - sWidth) / 2) + ((sWidth - focalWidth) * panX);
+        const sy = ((image.naturalHeight - sHeight) / 2) + ((sHeight - focalHeight) * panY);
         
-        ctx.drawImage(backgroundImage, sx, sy, focalWidth, focalHeight, 0, 0, canvas.width, canvas.height);
-
-        // Add a semi-transparent overlay for better text readability
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
+        ctx.drawImage(image, sx, sy, focalWidth, focalHeight, 0, 0, canvas.width, canvas.height);
+    };
     
-    // Draw lyrics
-    const currentLyricText = currentLyric || '';
-    if (currentLyricText) {
-      ctx.fillStyle = 'white';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = 'bold 44px Inter, sans-serif';
-      ctx.shadowColor = 'black';
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
-
-      const maxWidth = canvas.width * 0.9;
-      const lineHeight = 52;
-      const x = canvas.width / 2;
-      const y = canvas.height * 0.85;
-      wrapText(ctx, currentLyricText, x, y, maxWidth, lineHeight);
-    }
+    let currentSceneIndex = backgroundImages.findIndex((bg, i) => {
+        const nextBg = backgroundImages[i + 1];
+        return currentTimeMs >= bg.startTime && (!nextBg || currentTimeMs < nextBg.startTime);
+    });
+    if (currentSceneIndex === -1) currentSceneIndex = 0;
     
-  }, [backgroundImage, currentLyric, currentTime, duration]);
+    const currentScene = backgroundImages[currentSceneIndex];
+    const nextScene = backgroundImages[currentSceneIndex + 1];
+    
+    const sceneStartTime = currentScene.startTime;
+    const sceneEndTime = nextScene ? nextScene.startTime : duration * 1000;
+
+    // Draw current scene
+    drawKenBurns(currentScene.image, sceneStartTime, sceneEndTime);
+    
+    // Handle fade transition to next scene
+    if (nextScene && currentTimeMs > nextScene.startTime - FADE_DURATION_MS) {
+        const fadeProgress = (currentTimeMs - (nextScene.startTime - FADE_DURATION_MS)) / FADE_DURATION_MS;
+        ctx.globalAlpha = Math.min(fadeProgress, 1.0);
+        const nextSceneEndTime = backgroundImages[currentSceneIndex + 2] ? backgroundImages[currentSceneIndex + 2].startTime : duration * 1000;
+        drawKenBurns(nextScene.image, nextScene.startTime, nextSceneEndTime);
+        ctx.globalAlpha = 1.0;
+    }
+
+
+    // --- LYRICS RENDERING ---
+    if (currentLyric) {
+        const FONT_SIZE = 44;
+        const LINE_HEIGHT = 52;
+        const PADDING = 20;
+
+        ctx.font = `bold ${FONT_SIZE}px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Layout words and lines
+        const words = currentLyric.words;
+        const lines: { text: string, words: typeof words }[] = [];
+        let currentLine = '';
+        let currentLineWords: typeof words = [];
+
+        words.forEach(word => {
+            const testLine = currentLine ? `${currentLine} ${word.text}` : word.text;
+            if (ctx.measureText(testLine).width > canvas.width * 0.9 && currentLine) {
+                lines.push({ text: currentLine, words: currentLineWords });
+                currentLine = word.text;
+                currentLineWords = [word];
+            } else {
+                currentLine = testLine;
+                currentLineWords.push(word);
+            }
+        });
+        lines.push({ text: currentLine, words: currentLineWords });
+
+        const totalTextHeight = lines.length * LINE_HEIGHT;
+        const startY = canvas.height * 0.85 - totalTextHeight / 2;
+
+        // Draw text background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowColor = 'black';
+        ctx.shadowBlur = 15;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 5;
+
+        const maxLineWidth = lines.reduce((max, line) => Math.max(max, ctx.measureText(line.text).width), 0);
+        const bgX = (canvas.width - maxLineWidth) / 2 - PADDING;
+        const bgY = startY - LINE_HEIGHT / 2 - PADDING;
+        const bgWidth = maxLineWidth + PADDING * 2;
+        const bgHeight = totalTextHeight + PADDING * 2;
+        ctx.beginPath();
+        ctx.roundRect(bgX, bgY, bgWidth, bgHeight, [16]);
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+
+
+        // Draw text word by word for highlighting
+        lines.forEach((line, lineIndex) => {
+            const lineY = startY + lineIndex * LINE_HEIGHT;
+            let currentX = (canvas.width - ctx.measureText(line.text).width) / 2;
+            
+            ctx.textAlign = 'left';
+            line.words.forEach(word => {
+                const isSung = currentTimeMs >= word.startTime + LYRIC_OFFSET_MS;
+                ctx.fillStyle = isSung ? 'hsl(170 58% 54%)' : 'white';
+                ctx.fillText(word.text, currentX, lineY);
+                currentX += ctx.measureText(word.text + ' ').width;
+            });
+        });
+    }
+
+  }, [backgroundImage, currentLyric, currentTime, duration, backgroundImages]);
 
   useEffect(() => {
     const render = () => {
@@ -258,6 +302,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       const onAudioEnd = () => {
         recorderRef.current?.stop();
         audio.removeEventListener('ended', onAudioEnd);
+        audioContext.close();
       };
       audio.addEventListener('ended', onAudioEnd);
 
@@ -295,7 +340,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
           <Slider
             value={[currentTime]}
             max={duration}
-            step={1}
+            step={0.1}
             onValueChange={handleSeek}
             className="flex-grow"
             disabled={isRecording}

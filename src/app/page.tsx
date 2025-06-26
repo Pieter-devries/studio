@@ -34,7 +34,7 @@ export default function Home() {
         syncLyricsWithAudio({ audioDataUri, lyrics }),
       ]);
 
-      if (!backgroundResult.backgroundImageDataUri || !syncResult.syncedLyrics) {
+      if (!backgroundResult.scenes || !syncResult.syncedLyrics) {
         throw new Error('AI generation failed. Please try again.');
       }
       
@@ -46,7 +46,7 @@ export default function Home() {
 
       setVideoData({
         audioUrl: audioDataUri,
-        backgroundUrl: backgroundResult.backgroundImageDataUri,
+        backgroundScenes: backgroundResult.scenes,
         syncedLyrics: parsedLyrics,
         title: file.name.replace(/\.[^/.]+$/, ""),
       });
