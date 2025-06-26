@@ -61,10 +61,11 @@ The output must be a valid JSON object matching this structure:
 
 CRITICAL INSTRUCTIONS - FOLLOW THESE EXACTLY:
 1.  **MANDATORY FULL ANALYSIS:** You MUST analyze the audio file from the absolute beginning to the absolute end. Do not stop early. Incomplete analysis is a failure.
-2.  **COMPLETE OUTPUT:** Your response MUST contain a timestamp for every single line and every single word from the provided lyrics. The final word of the song must have a timestamp.
-3.  **DATA INTEGRITY:** Preserve original punctuation and capitalization for all text fields ("line" and "text"). Do not alter the lyrics.
-4.  **ACCURATE TIMESTAMPS:** Provide a "startTime" in MILLISECONDS for every line and every word. The timestamps must be sequential and increase realistically throughout the song's duration.
-5.  **FINAL VERIFICATION:** Before producing the final output, mentally review your work. Check: Is the *entire* song transcribed? Does the *last word* of the song have a timestamp? Are all timestamps sequential? Any failure to timestamp the entire song is a critical error.
+2.  **COMPLETE OUTPUT:** Your response MUST contain a timestamp for every single line and every single word from the provided lyrics. The final word of the song must have a timestamp. Missing a single word is a failure.
+3.  **ACCURATE START TIME:** Pay close attention to any instrumental introductions. The \`startTime\` for the very first word MUST be the exact moment that word is sung, not the start of the audio file.
+4.  **DATA INTEGRITY:** Preserve original punctuation and capitalization for all text fields ("line" and "text"). Do not alter the lyrics.
+5.  **ACCURATE TIMESTAMPS:** Provide a "startTime" in MILLISECONDS for every line and every word. The timestamps must be sequential and increase realistically throughout the song's duration.
+6.  **FINAL VERIFICATION (MANDATORY):** Before producing the final output, verify your work against these rules. Check: Is the *entire* song transcribed? Does the *last word* of the song have a timestamp? Is the first timestamp accurate to the vocal start? Are all timestamps sequential? Any failure to timestamp the entire song is a critical error.
 
 Here is the audio:
 {{media url=audioDataUri}}
