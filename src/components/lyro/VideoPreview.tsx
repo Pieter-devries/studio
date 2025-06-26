@@ -40,12 +40,14 @@ interface WrappedLine {
 // --- Constants ---
 const LYRIC_OFFSET_MS = 500;
 const FADE_DURATION_MS = 1000;
+const EXPORT_FPS = 25;
 const easeInOutCubic = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
 /**
  * A pure utility function to wrap lyrics based on canvas width.
  */
 const wrapLyrics = (ctx: CanvasRenderingContext2D, canvasWidth: number, words: Word[]): WrappedLine[] => {
+    if (!words) return [];
     return words.reduce((acc, word) => {
         const testLine = acc.length > 0 && acc[acc.length - 1].text ? `${acc[acc.length - 1].text} ${word.text}` : word.text;
         if (ctx.measureText(testLine).width > canvasWidth * 0.9 && acc.length > 0 && acc[acc.length - 1].text) {
@@ -121,8 +123,10 @@ const drawFrame = (
     let currentLyric: SyncedLyric | null = null;
     if (syncedLyrics) {
         for (let i = syncedLyrics.length - 1; i >= 0; i--) {
-            if (syncedLyrics[i].startTime <= effectiveTimeMs) {
-                currentLyric = syncedLyrics[i];
+            const currentLine = syncedLyrics[i];
+            const nextLine = syncedLyrics[i+1];
+            if (currentLine.startTime <= effectiveTimeMs && (!nextLine || nextLine.startTime > effectiveTimeMs)) {
+                currentLyric = currentLine;
                 break;
             }
         }
@@ -237,12 +241,12 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     setIsExporting(true);
     const { id: toastId, update: updateToast } = toast({
       title: 'Starting Export...',
-      description: 'Preparing to render video. This will not affect the player.',
+      description: 'Preparing your video. This may take a few minutes.',
     });
   
     let exportCanvas: HTMLCanvasElement | null = null;
     let audioContext: AudioContext | null = null;
-    let animationFrameId: number = 0;
+    let renderInterval: ReturnType<typeof setInterval> | null = null;
   
     try {
       exportCanvas = document.createElement('canvas');
@@ -255,7 +259,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       exportAudio.muted = true;
   
       const recordedChunks: BlobPart[] = [];
-      const stream = exportCanvas.captureStream(30);
+      const stream = exportCanvas.captureStream(EXPORT_FPS);
 
       // Combine audio and video streams
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -265,6 +269,11 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       stream.addTrack(audioDestination.stream.getAudioTracks()[0]);
   
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9,opus' });
+      
+      const cleanup = () => {
+        if (renderInterval) clearInterval(renderInterval);
+        audioContext?.close();
+      };
       
       recorder.ondataavailable = e => e.data.size > 0 && recordedChunks.push(e.data);
       
@@ -279,35 +288,33 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         
         setIsExporting(false);
         updateToast({ id: toastId, title: 'Export Complete!', description: 'Your video has been downloaded.' });
-        
-        cancelAnimationFrame(animationFrameId);
-        audioContext?.close();
+        cleanup();
       };
       
       const localCache = new Map<string, WrappedLine[]>();
-      let lastToastUpdateTime = -1;
-      const renderExportFrame = () => {
-        if (exportAudio.paused) return; // Stop rendering if paused/ended
-        drawFrame(ctx, exportCanvas!, exportAudio.currentTime * 1000, exportAudio.duration, backgroundImages, syncedLyrics, localCache);
-        
-        if (Date.now() - lastToastUpdateTime > 500) {
-            const progress = (exportAudio.currentTime / exportAudio.duration) * 100;
-            if (!isNaN(progress)) {
-                updateToast({ id: toastId, description: `Rendering video... ${progress.toFixed(0)}% complete.` });
-            }
-            lastToastUpdateTime = Date.now();
-        }
-        animationFrameId = requestAnimationFrame(renderExportFrame);
+      
+      const startRendering = () => {
+        renderInterval = setInterval(() => {
+          if (exportAudio.ended) {
+            if (recorder.state === 'recording') recorder.stop();
+            cleanup();
+            return;
+          }
+          drawFrame(ctx, exportCanvas!, exportAudio.currentTime * 1000, exportAudio.duration, backgroundImages, syncedLyrics, localCache);
+          const progress = (exportAudio.currentTime / exportAudio.duration) * 100;
+          if (!isNaN(progress)) {
+            updateToast({ id: toastId, description: `Rendering video... ${progress.toFixed(0)}% complete.` });
+          }
+        }, 1000 / EXPORT_FPS);
       };
-  
+
       exportAudio.onloadedmetadata = () => {
         updateToast({ id: toastId, title: 'Exporting Video', description: 'Rendering started... 0% complete.' });
         recorder.start();
         exportAudio.play();
-        renderExportFrame();
+        startRendering();
       };
-      
-      exportAudio.onended = () => recorder.stop();
+
       exportAudio.onerror = (e) => {
         console.error('Export audio error:', e);
         throw new Error("Audio element for export failed to load or play.");
@@ -318,8 +325,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       setIsExporting(false);
       const message = error instanceof Error ? error.message : 'An unknown error occurred.';
       updateToast({ id: toastId, variant: 'destructive', title: 'Export Failed', description: message });
-      
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      if (renderInterval) clearInterval(renderInterval);
       audioContext?.close();
     }
   };
@@ -333,7 +339,9 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   };
   const formatTime = (s: number) => {
     if (isNaN(s)) s = 0;
-    return `${Math.floor(s/60)}:${('0'+Math.floor(s%60)).slice(-2)}`;
+    const minutes = Math.floor(s / 60);
+    const seconds = Math.floor(s % 60);
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
 
   return (
@@ -345,9 +353,9 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       <div className="w-full max-w-2xl p-4 bg-card/50 backdrop-blur-sm rounded-lg border shadow-lg">
         <div className="flex items-center gap-4">
           <Button onClick={togglePlay} size="icon" disabled={isExporting}>{isPlaying ? <Pause /> : <Play />}</Button>
-          <span className="text-sm font-mono">{formatTime(currentTime)}</span>
+          <span className="text-sm font-mono w-12 text-center">{formatTime(currentTime)}</span>
           <Slider value={[currentTime]} max={duration} step={0.1} onValueChange={handleSeek} className="flex-grow" disabled={isExporting}/>
-          <span className="text-sm font-mono">{formatTime(duration)}</span>
+          <span className="text-sm font-mono w-12 text-center">{formatTime(duration)}</span>
         </div>
       </div>
       <div className="flex gap-4">
