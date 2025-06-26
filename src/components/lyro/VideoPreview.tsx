@@ -40,7 +40,7 @@ interface WrappedLine {
 // --- Constants ---
 const LYRIC_OFFSET_MS = 500;
 const FADE_DURATION_MS = 1000;
-const EXPORT_FPS = 25;
+const EXPORT_FPS = 30;
 const easeInOutCubic = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
 /**
@@ -249,6 +249,18 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     let renderInterval: ReturnType<typeof setInterval> | null = null;
   
     try {
+      const mimeType = 'video/mp4';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+          updateToast({
+              id: toastId,
+              variant: 'destructive',
+              title: 'Export Failed',
+              description: '.mp4 format is not supported by your browser. Please try Chrome or Firefox.'
+          });
+          setIsExporting(false);
+          return;
+      }
+
       exportCanvas = document.createElement('canvas');
       exportCanvas.width = 1280;
       exportCanvas.height = 720;
@@ -256,6 +268,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       if (!ctx) throw new Error('Could not create offscreen context');
   
       const exportAudio = new Audio(audioUrl);
+      exportAudio.crossOrigin = 'anonymous';
       exportAudio.muted = true;
   
       const recordedChunks: BlobPart[] = [];
@@ -266,9 +279,14 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       const audioSource = audioContext.createMediaElementSource(exportAudio);
       const audioDestination = audioContext.createMediaStreamDestination();
       audioSource.connect(audioDestination);
-      stream.addTrack(audioDestination.stream.getAudioTracks()[0]);
+      const audioTracks = audioDestination.stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        stream.addTrack(audioTracks[0]);
+      } else {
+         console.warn("No audio track found to add to the stream.");
+      }
   
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9,opus' });
+      const recorder = new MediaRecorder(stream, { mimeType });
       
       const cleanup = () => {
         if (renderInterval) clearInterval(renderInterval);
@@ -278,12 +296,14 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       recorder.ondataavailable = e => e.data.size > 0 && recordedChunks.push(e.data);
       
       recorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const blob = new Blob(recordedChunks, { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${title}.webm`;
+        a.download = `${title}.mp4`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
         setIsExporting(false);
