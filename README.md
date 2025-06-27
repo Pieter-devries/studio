@@ -1,10 +1,10 @@
 # LyroVideo - AI-Powered Music Video Generator
 
-LyroVideo is an intelligent music video generator that automatically creates stunning lyric videos from MP3 files and lyrics. Using advanced AI models, it generates dynamic backgrounds, synchronizes lyrics with audio timing, and applies cinematic effects to produce professional-quality music videos.
+LyroVideo is an intelligent music video generator that automatically creates stunning lyric videos from audio files (MP3 or WAV) and lyrics. Using advanced AI models, it generates dynamic backgrounds, synchronizes lyrics with audio timing, and applies cinematic effects to produce professional-quality music videos.
 
 ## 🎯 **Core Features**
 
-- **🎵 Audio Analysis**: Upload MP3 files for automatic processing
+- **🎵 Audio Analysis**: Upload audio files (MP3 or WAV) for automatic processing
 - **📝 Lyrics-Aware Transcription**: Advanced SRT-based timing that accurately synchronizes with provided lyrics
 - **🖼️ Dynamic Backgrounds**: Auto-generated images with Ken Burns effects every 30-60 seconds  
 - **🎬 Music Video Manager**: Single orchestrator coordinates all operations
@@ -24,7 +24,7 @@ LyroVideo is an intelligent music video generator that automatically creates stu
 ## ✅ Current Status (Working Features)
 
 ### ✅ Fully Functional
-- **Audio Upload & Processing**: Upload MP3 files and extract audio data
+- **Audio Upload & Processing**: Upload audio files (MP3 or WAV) and extract audio data
 - **Lyrics-Aware Transcription**: AI transcribes audio while being aware of provided lyrics for better accuracy
 - **Human Timing Verification**: Manual interface to review and adjust timing with offset controls
 - **Background Generation**: Creates unique cinematic background images based on lyrics
@@ -46,7 +46,7 @@ The app uses a streamlined approach that combines AI transcription with human ve
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Input Form    │───▶│ Lyrics-Aware     │───▶│ Timing          │
-│ (MP3 + Lyrics)  │    │ Transcription    │    │ Verification    │
+│(Audio + Lyrics) │    │ Transcription    │    │ Verification    │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
                               │                         │
                               ▼                         ▼
@@ -182,7 +182,7 @@ When you start the app, you should see configuration status in the console:
 
 ### Creating a Music Video
 
-1. **Upload Audio**: Select an MP3 file from your device
+1. **Upload Audio**: Select an audio file (MP3 or WAV) from your device
 2. **Add Lyrics**: Paste the song lyrics in the text area
 3. **Generate**: Click "Generate Video" to start the AI processing
 4. **Quality Assurance**: The system automatically validates and improves the output

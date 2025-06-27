@@ -20,16 +20,21 @@ export function InputForm({ onGenerate }: InputFormProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  // Helper function to check if file type is supported
+  const isValidAudioFile = (fileType: string) => {
+    return fileType === 'audio/mpeg' || fileType === 'audio/wav' || fileType === 'audio/wave';
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
-      if (selectedFile.type === 'audio/mpeg') {
+      if (isValidAudioFile(selectedFile.type)) {
         setFile(selectedFile);
       } else {
         toast({
           variant: 'destructive',
           title: 'Invalid File Type',
-          description: 'Please upload an MP3 file.',
+          description: 'Please upload an MP3 or WAV file.',
         });
       }
     }
@@ -59,7 +64,7 @@ export function InputForm({ onGenerate }: InputFormProps) {
     
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
         const droppedFile = e.dataTransfer.files[0];
-        if (droppedFile.type === 'audio/mpeg') {
+        if (isValidAudioFile(droppedFile.type)) {
             setFile(droppedFile);
             if(fileInputRef.current) {
                 fileInputRef.current.files = e.dataTransfer.files;
@@ -68,7 +73,7 @@ export function InputForm({ onGenerate }: InputFormProps) {
             toast({
                 variant: 'destructive',
                 title: 'Invalid File Type',
-                description: 'Please upload an MP3 file.',
+                description: 'Please upload an MP3 or WAV file.',
             });
         }
     }
@@ -77,7 +82,7 @@ export function InputForm({ onGenerate }: InputFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
-      toast({ variant: 'destructive', title: 'Missing MP3 File', description: 'Please upload an audio file.' });
+      toast({ variant: 'destructive', title: 'Missing Audio File', description: 'Please upload an audio file.' });
       return;
     }
     if (!lyrics.trim()) {
@@ -92,7 +97,7 @@ export function InputForm({ onGenerate }: InputFormProps) {
       <Card className="w-full shadow-lg border-2 border-dashed border-border hover:border-primary transition-colors duration-300">
         <CardHeader>
           <CardTitle className="text-3xl font-headline">Create Your Music Video</CardTitle>
-          <CardDescription>Upload an MP3 and provide the lyrics to get started.</CardDescription>
+          <CardDescription>Upload an audio file (MP3 or WAV) and provide the lyrics to get started.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
           <div className="grid gap-2">
@@ -112,11 +117,11 @@ export function InputForm({ onGenerate }: InputFormProps) {
                     ) : (
                         <>
                         <p className="mb-2 text-sm text-slate-600 dark:text-slate-300"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">MP3 format only</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">MP3 or WAV format</p>
                         </>
                     )}
                 </div>
-                <Input id="audio-upload" ref={fileInputRef} type="file" className="hidden" accept=".mp3" onChange={handleFileChange} />
+                <Input id="audio-upload" ref={fileInputRef} type="file" className="hidden" accept=".mp3,.wav" onChange={handleFileChange} />
             </Label>
           </div>
           <div className="grid gap-2">

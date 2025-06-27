@@ -54,7 +54,7 @@ const GenerateDynamicBackgroundInputSchema = z.object({
   audioDataUri: z
     .string()
     .describe(
-      "The audio data URI of the song (MP3 format), as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
+      "The audio data URI of the song (MP3 or WAV format), as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
   lyrics: z.string().describe('The lyrics of the song.'),
 });

@@ -25,7 +25,16 @@ async function readFile(filePath) {
 async function getAudioDataUri(filePath) {
   try {
     const fileBuffer = await fs.readFile(filePath);
-    const mimeType = 'audio/mpeg';
+    // Determine MIME type based on file extension
+    const ext = path.extname(filePath).toLowerCase();
+    let mimeType;
+    if (ext === '.mp3') {
+      mimeType = 'audio/mpeg';
+    } else if (ext === '.wav') {
+      mimeType = 'audio/wav';
+    } else {
+      throw new Error(`Unsupported audio format: ${ext}`);
+    }
     return `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
   } catch (err)
   {
