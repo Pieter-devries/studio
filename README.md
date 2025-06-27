@@ -5,91 +5,82 @@ LyroVideo is an intelligent music video generator that automatically creates stu
 ## 🎯 **Core Features**
 
 - **🎵 Audio Analysis**: Upload MP3 files for automatic processing
-- **📝 Two-Stage Lyric Synchronization**: Advanced SRT-based timing that handles instrumentals naturally
+- **📝 Lyrics-Aware Transcription**: Advanced SRT-based timing that accurately synchronizes with provided lyrics
 - **🖼️ Dynamic Backgrounds**: Auto-generated images with Ken Burns effects every 30-60 seconds  
 - **🎬 Music Video Manager**: Single orchestrator coordinates all operations
-- **🔍 Quality Assurance**: Automatic validation and iterative improvement system
-- **📱 Real-time Preview**: Live preview with precise audio-video synchronization
-- **💾 Video Export**: High-quality MP4 export (1280x720, 30fps)
-- **🔒 Secure Configuration**: Environment-based API key management
+- **🔍 Human Verification**: Manual timing verification and adjustment interface
+- **🎥 High-Quality Export**: Professional 1080p MP4/WebM export with 12 Mbps video + 320 kbps audio
+- **🛡️ Memory-Safe Export**: Chunked processing prevents memory leaks and browser crashes
+- **🚫 Cancellable Export**: Users can stop export process at any time
+- **⚡ Optimized Rendering**: Dynamic font scaling and high-quality text rendering
 
-## 🎯 Features
+## ✅ **Current Working Features**
+- **Lyrics-Aware Transcription**: Accurate SRT generation using provided lyrics as context for timing
+- **Human Timing Verification**: Manual interface to review and adjust timing with offset controls
+- **Background Generation**: Dynamic image generation with Ken Burns effects
+- **Video Preview & Export**: Full 1080p video rendering and MP4/WebM export
+- **Timing Synchronization**: Precise audio-lyrics sync with millisecond accuracy
 
-### Core Functionality
-- **Automatic Background Generation**: Creates unique background images every 10-15 seconds based on song lyrics and mood
-- **Ken Burns Effect**: Applies smooth pan and zoom animations to background images for cinematic movement
-- **Lyric Synchronization**: Intelligently syncs lyrics with audio timing using AI analysis
-- **Word-Level Highlighting**: Highlights individual words as they are sung with smooth color transitions
-- **Real-time Preview**: Interactive video player with playback controls and timeline scrubbing
-- **Video Export**: Export high-quality MP4 videos with customizable settings
+## ✅ Current Status (Working Features)
 
-### Technical Features
-- **AI-Powered Analysis**: Uses Google's Gemini models for audio analysis and image generation
-- **Responsive Design**: Modern UI built with Next.js, Tailwind CSS, and Radix UI components
-- **Type Safety**: Full TypeScript implementation with comprehensive type definitions
-- **Server-Side Processing**: Efficient AI workflows using Genkit framework
-- **Real-time Rendering**: Canvas-based video rendering with 60fps playback
-- **Secure API Management**: Environment-based API key configuration with validation
+### ✅ Fully Functional
+- **Audio Upload & Processing**: Upload MP3 files and extract audio data
+- **Lyrics-Aware Transcription**: AI transcribes audio while being aware of provided lyrics for better accuracy
+- **Human Timing Verification**: Manual interface to review and adjust timing with offset controls
+- **Background Generation**: Creates unique cinematic background images based on lyrics
+- **Video Preview**: Real-time video player with lyrics synchronized to audio
+- **Video Export**: Export high-quality MP4 videos
+- **Timing Synchronization**: Accurate lyrics timing with manual adjustment capabilities
+
+### 🚧 TODO: Features to Reincorporate
+- **Word-Level Highlighting**: Individual word highlighting as they are sung with smooth color transitions
+  - Currently shows full lyric lines without word-by-word highlighting
+  - Need to reimplement the word timing distribution and visual highlighting effects
+  - Previous implementation had timing calculation issues that were resolved by simplifying to line-level display
 
 ## 🏗️ Architecture
 
-### Music Video Manager with Quality Assurance
-The app uses a centralized "Music Video Manager" that orchestrates the entire video creation process with automatic quality validation and iterative improvement:
+### Two-Stage Lyrics Processing with Human Verification
+The app uses a streamlined approach that combines AI transcription with human verification:
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Input Form    │───▶│  Video Manager   │───▶│  Video Preview  │
-│ (MP3 + Lyrics)  │    │   (Orchestrator) │    │   (Player)      │
+│   Input Form    │───▶│ Lyrics-Aware     │───▶│ Timing          │
+│ (MP3 + Lyrics)  │    │ Transcription    │    │ Verification    │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
-                              │
-                              ▼
-                    ┌──────────────────┐
-                    │   AI Workflows   │
-                    │                  │
-                    │ • Sync Lyrics    │
-                    │ • Generate BGs   │
-                    │ • Quality Check  │
-                    │ • Auto-Fix Loop  │
-                    └──────────────────┘
+                              │                         │
+                              ▼                         ▼
+                    ┌──────────────────┐    ┌─────────────────┐
+                    │ Background       │───▶│ Video Preview   │
+                    │ Generation       │    │ & Export        │
+                    └──────────────────┘    └─────────────────┘
 ```
-
-### Quality Assurance System
-The orchestrator now includes an intelligent QA system that:
-
-1. **Initial Generation**: Runs background and lyric sync agents in parallel
-2. **Quality Assessment**: Analyzes output for timing and accuracy issues
-3. **Iterative Improvement**: Automatically requests fixes from agents when issues are detected
-4. **Validation Loop**: Repeats until quality standards are met (up to 3 iterations)
-
-**Quality Criteria:**
-- 🖼️ **Background Scenes**: No gaps > 90 seconds between changes
-- 🎵 **Lyric Sync**: 90%+ accuracy target with proper vocal timing
-- 🎯 **Overall Score**: 85+ quality score required to pass
 
 ### AI Workflows
 
-#### 1. **Two-Stage Lyric Synchronization** (`sync-lyrics-with-audio.ts`)
-   - **Stage 1**: Transcribes audio to SRT format with natural gaps during instrumentals
-   - **Stage 2**: Maps structured lyrics to SRT timestamps for accurate timing
-   - **Benefits**: Eliminates massive timing gaps in instrumental sections
-   - **Fallback**: Automatic fallback to direct synchronization if two-stage fails
-   - Handles instrumental intros, breaks, and repeated sections properly
+#### 1. **Lyrics-Aware Transcription** (`lyrics-aware-transcription.ts`)
+   - Transcribes audio to SRT format while being aware of provided lyrics
+   - Produces more accurate timing by leveraging lyric structure
+   - Generates proper SRT format with millisecond precision
+   - Handles instrumental sections naturally
 
-#### 2. **Background Generation** (`generate-dynamic-background.ts`)
+#### 2. **Human Timing Verification** (`TimingVerification.tsx`)
+   - Manual review interface with audio playback controls
+   - Adjustable timing offset with real-time preview
+   - Visual feedback showing current lyric segment
+   - Fine-tuning capabilities for perfect synchronization
+
+#### 3. **Background Generation** (`generate-dynamic-background.ts`)
    - Creates scene prompts based on lyrics and audio analysis
    - Generates 6-10 cinematic images using Gemini 2.0 Flash
    - Distributes scenes evenly across song duration (30-60s intervals)
+   - Ken Burns effect for smooth pan and zoom animations
 
-#### 3. **Quality Assurance Agent** (New!)
-   - Validates background scene timing distribution
-   - Checks lyric synchronization accuracy
-   - Identifies specific problem areas with time ranges
-   - Provides actionable recommendations for fixes
-
-#### 4. **Video Orchestration** (`orchestrate-video-creation.ts`)
-   - Coordinates all AI workflows with parallel processing
-   - Manages quality assurance feedback loop
-   - Automatically retries with improvements until quality standards are met
+#### 4. **Video Rendering** (`VideoPreview.tsx`)
+   - Canvas-based real-time rendering
+   - Simplified timing system using basic audio.currentTime
+   - Full-line lyric display (word highlighting to be added)
+   - MP4 export with MediaRecorder API
 
 ## 🔐 Security & API Key Management
 

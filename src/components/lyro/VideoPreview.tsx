@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
 import { Play, Pause, Download, Undo2 } from 'lucide-react';
 import type { SyncedLyric, Word } from '@/lib/utils';
+import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 // --- Interfaces ---
 interface BackgroundScene {
@@ -176,7 +177,12 @@ const drawFrame = (
     }
 
     if (currentLyric) {
-        const FONT_SIZE = 44, LINE_HEIGHT = 52, PADDING = 20;
+        // Dynamic font sizing based on canvas resolution
+        const baseFontSize = canvas.width <= 1280 ? 44 : Math.round(canvas.width * 0.034); // Scale with resolution
+        const FONT_SIZE = baseFontSize;
+        const LINE_HEIGHT = Math.round(FONT_SIZE * 1.18);
+        const PADDING = Math.round(canvas.width * 0.015);
+        
         ctx.font = `bold ${FONT_SIZE}px Inter, sans-serif`;
         ctx.textBaseline = 'middle';
         
@@ -185,7 +191,7 @@ const drawFrame = (
         // Just display the lyric with line breaks when we're in the SRT time window
         
         // Word wrap the lyric text to fit canvas width
-        const maxWidth = canvas.width * 0.9; // Use 90% of canvas width
+        const maxWidth = canvas.width * 0.85; // Use 85% of canvas width for better margins
         const words = currentLyric.line.split(' ');
         const lines: string[] = [];
         let currentLine = '';
@@ -211,33 +217,42 @@ const drawFrame = (
         const totalTextHeight = lines.length * LINE_HEIGHT;
         const startY = canvas.height * 0.85 - totalTextHeight / 2;
         
-        // Background box
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.shadowColor = 'black';
-        ctx.shadowBlur = 15;
+        // High-quality background box with better shadow
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+        ctx.shadowBlur = Math.round(canvas.width * 0.008); // Scale shadow with resolution
         const maxLineWidth = lines.reduce((max, line) => Math.max(max, ctx.measureText(line).width), 0);
+        const borderRadius = Math.round(canvas.width * 0.008);
         ctx.beginPath();
-        ctx.roundRect((canvas.width - maxLineWidth) / 2 - PADDING, startY - LINE_HEIGHT / 2 - PADDING, maxLineWidth + PADDING * 2, totalTextHeight + PADDING * 2, [16]);
+        ctx.roundRect(
+            (canvas.width - maxLineWidth) / 2 - PADDING, 
+            startY - LINE_HEIGHT / 2 - PADDING, 
+            maxLineWidth + PADDING * 2, 
+            totalTextHeight + PADDING * 2, 
+            [borderRadius]
+        );
         ctx.fill();
-        ctx.shadowColor = 'transparent';
+        ctx.restore();
 
-        // Simple text rendering - no highlighting, just plain white text
+        // High-quality text rendering with better shadows
         lines.forEach((line, lineIndex) => {
             const lineY = startY + lineIndex * LINE_HEIGHT;
             ctx.textAlign = 'center';
-            ctx.fillStyle = 'white';
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-            ctx.shadowBlur = 2;
-            ctx.shadowOffsetX = 1;
-            ctx.shadowOffsetY = 1;
             
+            // Text shadow for better readability
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+            ctx.shadowBlur = Math.round(canvas.width * 0.003);
+            ctx.shadowOffsetX = Math.round(canvas.width * 0.001);
+            ctx.shadowOffsetY = Math.round(canvas.width * 0.001);
             ctx.fillText(line, canvas.width / 2, lineY);
+            ctx.restore();
             
-            // Reset shadow effects
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 0;
+            // Main text
+            ctx.fillStyle = 'white';
+            ctx.fillText(line, canvas.width / 2, lineY);
         });
         
         // ENHANCED DEBUG: Show exactly what we're displaying vs what the timing says
@@ -261,6 +276,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   // --- State for UI ---
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportAbortController, setExportAbortController] = useState<AbortController | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
@@ -432,163 +448,318 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
   const handleExport = async () => {
     if (isExporting) return;
     setIsExporting(true);
+    
+    const abortController = new AbortController();
+    setExportAbortController(abortController);
+    
     const { id: toastId, update: updateToast } = toast({
       title: 'Starting Export...',
-      description: 'Preparing your video. This may take a few minutes.',
+      description: 'Preparing safe video export...',
     });
-  
-    let exportCanvas: HTMLCanvasElement | null = null;
-    let audioContext: AudioContext | null = null;
-    let exportAnimationFrame: number | null = null;
-  
+
+    // Declare at function scope for cleanup access
+    let exportAudioContext: AudioContext | null = null;
+    let exportAudio: HTMLAudioElement | null = null;
+
+    const cleanup = () => {
+      // Clean up export-specific resources
+      if (exportAudioContext && exportAudioContext.state !== 'closed') {
+        exportAudioContext.close().catch(console.error);
+      }
+      
+      // Remove export audio from DOM if it exists
+      if (exportAudio && exportAudio.parentNode) {
+        exportAudio.pause();
+        exportAudio.src = '';
+        document.body.removeChild(exportAudio);
+        console.log('🎵 Removed export audio from DOM');
+      }
+      
+      // Reset state
+      setExportAbortController(null);
+      setIsExporting(false);
+      
+      console.log('🧹 Export cleanup completed');
+    };
+
     try {
-      const mimeType = 'video/mp4';
+      // Start with improved MediaRecorder approach (safer and more compatible)
+      let mimeType = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"'; // H.264 + AAC
+      let fileExtension = 'mp4';
+      
+      // Fallback to webm if mp4 not supported
       if (!MediaRecorder.isTypeSupported(mimeType)) {
-          updateToast({
+        mimeType = 'video/webm; codecs="vp9, opus"';
+        fileExtension = 'webm';
+        
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'video/webm';
+          fileExtension = 'webm';
+          
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            updateToast({
               id: toastId,
               variant: 'destructive',
               title: 'Export Failed',
-              description: '.mp4 format is not supported by your browser. Please try Chrome or Firefox.'
-          });
-          setIsExporting(false);
-          return;
-      }
-
-      // Create COMPLETELY SEPARATE canvas and context for export
-      exportCanvas = document.createElement('canvas');
-      exportCanvas.width = 1280;
-      exportCanvas.height = 720;
-      const exportCtx = exportCanvas.getContext('2d');
-      if (!exportCtx) throw new Error('Could not create offscreen context');
-  
-      // Create SEPARATE audio instance for export (completely isolated)
-      const exportAudio = new Audio(audioUrl);
-      exportAudio.crossOrigin = 'anonymous';
-      exportAudio.muted = true;
-      exportAudio.preload = 'metadata';
-  
-      const recordedChunks: BlobPart[] = [];
-      const stream = exportCanvas.captureStream(EXPORT_FPS);
-
-      // Combine audio and video streams
-      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const audioSource = audioContext.createMediaElementSource(exportAudio);
-      const audioDestination = audioContext.createMediaStreamDestination();
-      audioSource.connect(audioDestination);
-      const audioTracks = audioDestination.stream.getAudioTracks();
-      if (audioTracks.length > 0) {
-        stream.addTrack(audioTracks[0]);
-      } else {
-         console.warn("No audio track found to add to the stream.");
-      }
-  
-      const recorder = new MediaRecorder(stream, { mimeType });
-      
-      const cleanup = () => {
-        if (exportAnimationFrame) {
-          cancelAnimationFrame(exportAnimationFrame);
-          exportAnimationFrame = null;
+              description: 'Video recording not supported in your browser',
+            });
+            return;
+          }
         }
-        audioContext?.close();
+      }
+
+      console.log('🎬 Using export format:', mimeType);
+
+      // Create high-quality export canvas (1080p)
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = 1920;  // Full HD width
+      exportCanvas.height = 1080; // Full HD height
+      const exportCtx = exportCanvas.getContext('2d', {
+        willReadFrequently: false,
+        desynchronized: true,
+        alpha: false // No transparency for better performance
+      });
+      if (!exportCtx) throw new Error('Could not create export context');
+
+      // Optimize canvas for video export
+      exportCtx.imageSmoothingEnabled = true;
+      exportCtx.imageSmoothingQuality = 'high';
+
+      // Create completely separate audio element for export (not connected to main player)
+      exportAudio = new Audio();
+      exportAudio.src = audioUrl; // Set src separately to avoid conflicts
+      exportAudio.crossOrigin = 'anonymous';
+      exportAudio.preload = 'metadata';
+      exportAudio.volume = 1.0; // Full volume for recording
+      exportAudio.style.display = 'none'; // Hidden but in DOM
+      
+      // Important: Add to DOM to prevent removal errors
+      document.body.appendChild(exportAudio);
+      console.log('🎵 Created separate export audio element and added to DOM');
+
+      const recordedChunks: BlobPart[] = [];
+      const EXPORT_FPS = 30;
+      
+      // High-quality stream settings
+      const videoStream = exportCanvas.captureStream(EXPORT_FPS);
+
+      try {
+        exportAudioContext = new AudioContext({ sampleRate: 48000 });
+        await exportAudioContext.resume(); // Ensure context is running
+        console.log('🎵 Export AudioContext created and resumed');
+        
+        if (!exportAudio) throw new Error('Export audio element not created');
+        
+        const audioSource = exportAudioContext.createMediaElementSource(exportAudio);
+        const audioDestination = exportAudioContext.createMediaStreamDestination();
+        
+        // Connect audio to both recording destination AND speakers (for proper capture)
+        audioSource.connect(audioDestination);
+        audioSource.connect(exportAudioContext.destination); // This enables audio capture
+
+        // Add high-quality audio track to video stream
+        const audioTracks = audioDestination.stream.getAudioTracks();
+        console.log('🎵 Audio tracks found:', audioTracks.length);
+        if (audioTracks.length > 0) {
+          audioTracks.forEach(track => {
+            console.log('🎵 Adding audio track:', track.label);
+            videoStream.addTrack(track);
+          });
+        } else {
+          console.warn('⚠️ No audio tracks found for recording');
+        }
+      } catch (audioError) {
+        console.error('🚨 Audio setup failed:', audioError);
+        // Continue without audio if audio setup fails
+        updateToast({
+          id: toastId,
+          title: 'Warning',
+          description: 'Audio capture failed, exporting video only',
+        });
+      }
+
+      // High-quality recorder settings
+      const recorder = new MediaRecorder(videoStream, { 
+        mimeType,
+        videoBitsPerSecond: 12000000, // 12 Mbps for high quality 1080p
+        audioBitsPerSecond: 320000    // 320 kbps for high quality audio
+      });
+
+      // Memory-safe render variables
+      const exportCache = new Map<string, WrappedLine[]>();
+      let startTime = 0;
+      let frameCount = 0;
+      let lastProgressUpdate = 0;
+      const MAX_FRAMES_BEFORE_YIELD = 60; // Yield every 2 seconds
+
+      // Handle abort signal
+      abortController.signal.addEventListener('abort', () => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+        cleanup();
+      });
+
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) {
+          recordedChunks.push(e.data);
+        }
       };
-      
-      recorder.ondataavailable = e => e.data.size > 0 && recordedChunks.push(e.data);
-      
+
       recorder.onstop = () => {
+        console.log('🎬 Export recording stopped');
+        
+        // Create blob and download
         const blob = new Blob(recordedChunks, { type: 'video/mp4' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${title}.mp4`;
+        a.download = `lyro-video-${Date.now()}.${fileExtension}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+
+        updateToast({
+          id: toastId,
+          title: 'Export Complete!',
+          description: 'Your video has been downloaded successfully.',
+        });
         
-        setIsExporting(false);
-        updateToast({ id: toastId, title: 'Export Complete!', description: 'Your video has been downloaded.' });
         cleanup();
       };
-      
-      // COMPLETELY SEPARATE cache and timing for export
-      const exportCache = new Map<string, WrappedLine[]>();
-      let exportStartTime = 0;
-      let lastFrameTime = 0;
-      
-      const renderExportFrame = (timestamp: number) => {
-        if (exportAudio.ended || exportAudio.error) {
-          if (recorder.state === 'recording') recorder.stop();
-          cleanup();
+
+      recorder.onerror = (e) => {
+        console.error('🚨 MediaRecorder error:', e);
+        cleanup();
+        setIsExporting(false);
+      };
+
+      // Memory-safe render function with yielding
+      const renderFrame = (currentTimeMs: number) => {
+        if (abortController.signal.aborted) return false;
+        
+        // Clear canvas
+        exportCtx.fillStyle = 'black';
+        exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+        // Render frame using cached data
+        if (!exportAudio) return false;
+        
+        drawFrame(
+          exportCtx,
+          exportCanvas,
+          currentTimeMs,
+          exportAudio.duration,
+          backgroundImages,
+          sortedLyrics,
+          exportCache
+        );
+
+        frameCount++;
+        return true;
+      };
+
+      // Wait for audio metadata and start recording
+      await new Promise<void>((resolve, reject) => {
+        if (!exportAudio) {
+          reject(new Error('Export audio element not available'));
           return;
         }
         
-        // Use timestamp-based timing for consistent export (not audio.currentTime)
-        if (exportStartTime === 0) {
-          exportStartTime = timestamp;
-        }
-        
-        const elapsedTime = timestamp - exportStartTime;
-        const exportTimeMs = elapsedTime;
-        
-        // Render frame using EXPORT-SPECIFIC timing
-        drawFrame(
-          exportCtx, 
-          exportCanvas!, 
-          exportTimeMs, 
-          exportAudio.duration, 
-          backgroundImages, 
-          sortedLyrics, 
-          exportCache
-        );
-        
-        // Update progress based on duration, not audio currentTime
-        const progress = Math.min((exportTimeMs / 1000) / exportAudio.duration * 100, 100);
-        if (!isNaN(progress)) {
-          updateToast({ 
-            id: toastId, 
-            description: `Rendering video... ${progress.toFixed(0)}% complete.` 
+        exportAudio.onloadedmetadata = () => {
+          if (!exportAudio) return;
+          
+          console.log('🎵 Export audio metadata loaded, duration:', exportAudio.duration);
+          
+          updateToast({
+            id: toastId,
+            title: 'Exporting Video...',
+            description: 'Starting synchronized recording...',
           });
-        }
-        
-        // Continue export render loop
-        if (exportTimeMs / 1000 < exportAudio.duration) {
-          exportAnimationFrame = requestAnimationFrame(renderExportFrame);
-        } else {
-          // Export complete
-          if (recorder.state === 'recording') recorder.stop();
-          cleanup();
-        }
-      };
 
-      // Start export when audio metadata is loaded
-      exportAudio.onloadedmetadata = () => {
-        updateToast({ 
-          id: toastId, 
-          title: 'Exporting Video', 
-          description: 'Rendering started... 0% complete.' 
-        });
-        
-        recorder.start();
-        exportAudio.play();
-        
-        // Start SEPARATE export render loop
-        exportAnimationFrame = requestAnimationFrame(renderExportFrame);
-      };
+          // Start recording
+          recorder.start(1000); // Collect data every second
+          console.log('🎬 MediaRecorder started');
 
-      exportAudio.onerror = (e) => {
-        console.error('Export audio error:', e);
-        throw new Error("Audio element for export failed to load or play.");
-      };
-      
+          // Start audio playback for sync
+          exportAudio.currentTime = 0;
+          
+          // Handle play promise properly
+          const playPromise = exportAudio.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              if (!exportAudio) return;
+              
+              console.log('🎵 Export audio started playing');
+              
+              // Real-time sync loop - render frames in sync with audio playback
+              const syncRenderLoop = () => {
+                if (abortController.signal.aborted || !exportAudio || exportAudio.ended) {
+                  console.log('🛑 Export completed or aborted');
+                  if (recorder.state === 'recording') {
+                    recorder.stop();
+                  }
+                  return;
+                }
+
+                const currentTimeMs = exportAudio.currentTime * 1000;
+                
+                // Render frame at current audio time
+                renderFrame(currentTimeMs);
+
+                // Update progress
+                const progress = Math.min((exportAudio.currentTime / exportAudio.duration) * 100, 100);
+                if (Math.floor(exportAudio.currentTime) !== lastProgressUpdate) {
+                  lastProgressUpdate = Math.floor(exportAudio.currentTime);
+                  updateToast({
+                    id: toastId,
+                    title: 'Exporting Video...',
+                    description: `Progress: ${progress.toFixed(0)}% (${exportAudio.currentTime.toFixed(1)}s / ${exportAudio.duration.toFixed(1)}s)`,
+                  });
+                }
+
+                // Continue loop
+                requestAnimationFrame(syncRenderLoop);
+              };
+
+              // Start the synchronized render loop
+              syncRenderLoop();
+              resolve();
+            }).catch(reject);
+          } else {
+            reject(new Error('Audio play() method not supported'));
+          }
+        };
+
+        exportAudio.onerror = reject;
+        exportAudio.onended = () => {
+          console.log('🎵 Export audio ended, stopping recording');
+          if (recorder.state === 'recording') {
+            recorder.stop();
+          }
+        };
+      });
+
     } catch (error) {
-      console.error('Export failed', error);
-      setIsExporting(false);
-      const message = error instanceof Error ? error.message : 'An unknown error occurred.';
-      updateToast({ id: toastId, variant: 'destructive', title: 'Export Failed', description: message });
-      if (exportAnimationFrame) {
-        cancelAnimationFrame(exportAnimationFrame);
-      }
-      audioContext?.close();
+      console.error('🚨 Export failed:', error);
+      updateToast({
+        id: toastId,
+        variant: 'destructive',
+        title: 'Export Failed',
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+      });
+      cleanup();
+    }
+  };
+
+  const handleCancelExport = () => {
+    if (exportAbortController) {
+      exportAbortController.abort();
+      toast({
+        title: 'Export Cancelled',
+        description: 'Video export has been stopped.',
+      });
     }
   };
 
@@ -622,9 +793,26 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       </div>
       <div className="flex gap-4">
         <Button onClick={onReset} variant="outline" size="lg" disabled={isExporting}><Undo2/> Create New Video</Button>
-        <Button onClick={handleExport} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isExporting}>
-          <Download /> {isExporting ? 'Exporting...' : 'Export Video'}
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button
+            onClick={handleExport}
+            disabled={!sortedLyrics.length || isExporting}
+            className="w-full"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            {isExporting ? 'Exporting...' : 'Export Video'}
+          </Button>
+          
+          {isExporting && (
+            <Button
+              onClick={handleCancelExport}
+              variant="outline"
+              className="w-full"
+            >
+              Cancel Export
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
