@@ -5,7 +5,7 @@ LyroVideo is an intelligent music video generator that automatically creates stu
 ## 🎯 **Core Features**
 
 - **🎵 Audio Analysis**: Upload MP3 files for automatic processing
-- **📝 Lyric Synchronization**: AI-powered word-level timing with vocal detection
+- **📝 Two-Stage Lyric Synchronization**: Advanced SRT-based timing that handles instrumentals naturally
 - **🖼️ Dynamic Backgrounds**: Auto-generated images with Ken Burns effects every 30-60 seconds  
 - **🎬 Music Video Manager**: Single orchestrator coordinates all operations
 - **🔍 Quality Assurance**: Automatic validation and iterative improvement system
@@ -68,10 +68,12 @@ The orchestrator now includes an intelligent QA system that:
 
 ### AI Workflows
 
-#### 1. **Lyric Synchronization** (`sync-lyrics-with-audio.ts`)
-   - Analyzes audio file to detect vocal start timing
-   - Maps lyrics to precise timestamps with word-level accuracy
-   - Handles instrumental intros and breaks properly
+#### 1. **Two-Stage Lyric Synchronization** (`sync-lyrics-with-audio.ts`)
+   - **Stage 1**: Transcribes audio to SRT format with natural gaps during instrumentals
+   - **Stage 2**: Maps structured lyrics to SRT timestamps for accurate timing
+   - **Benefits**: Eliminates massive timing gaps in instrumental sections
+   - **Fallback**: Automatic fallback to direct synchronization if two-stage fails
+   - Handles instrumental intros, breaks, and repeated sections properly
 
 #### 2. **Background Generation** (`generate-dynamic-background.ts`)
    - Creates scene prompts based on lyrics and audio analysis
@@ -195,6 +197,35 @@ When you start the app, you should see configuration status in the console:
 4. **Quality Assurance**: The system automatically validates and improves the output
 5. **Preview**: Watch the generated video with playback controls
 6. **Export**: Download the final MP4 video file
+
+### Advanced Two-Stage Lyric Synchronization
+
+Our improved synchronization system uses a two-stage approach to handle complex timing scenarios:
+
+#### Stage 1: Audio Transcription
+- Transcribes the entire audio file to SRT (SubRip) format
+- Creates natural gaps during instrumental sections
+- Provides accurate timestamps for all vocal segments
+- Handles repeated sections (choruses, verses) properly
+
+#### Stage 2: Lyric Alignment  
+- Maps structured lyrics to SRT timestamps
+- Preserves exact lyric formatting and line structure
+- Uses only existing SRT timestamps (no estimation)
+- Maintains natural instrumental gaps from transcription
+
+#### Benefits
+- ✅ **Eliminates timing drift** in long instrumental sections
+- ✅ **Natural gap handling** - no more massive 6-second delays
+- ✅ **Accurate repeated sections** - choruses sync to their actual timing
+- ✅ **Robust fallback** - automatically falls back to direct sync if needed
+
+#### Debug Logging
+The system provides detailed logging for troubleshooting:
+- `🎵 [SYNC]` - Shows which stage is running
+- `📝 [SRT FULL CONTENT]` - Complete SRT transcription
+- `⏰ [SRT]` - Extracted timestamps and segments
+- `📊 [SYNC]` - Final alignment results
 
 ### What Happens During Generation
 

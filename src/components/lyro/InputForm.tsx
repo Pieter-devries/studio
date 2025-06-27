@@ -106,13 +106,13 @@ export function InputForm({ onGenerate }: InputFormProps) {
                 onDrop={handleDrop}
                 >
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <UploadCloud className="w-10 h-10 mb-3 text-muted-foreground" />
+                    <UploadCloud className="w-10 h-10 mb-3 text-slate-500 dark:text-slate-400" />
                     {file ? (
                         <p className="font-semibold text-primary">{file.name}</p>
                     ) : (
                         <>
-                        <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                        <p className="text-xs text-muted-foreground">MP3 format only</p>
+                        <p className="mb-2 text-sm text-slate-600 dark:text-slate-300"><span className="font-semibold">Click to upload</span> or drag and drop</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">MP3 format only</p>
                         </>
                     )}
                 </div>

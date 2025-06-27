@@ -140,16 +140,40 @@ const drawFrame = (
             }
         }
         
-        // Enhanced debug logging with preprocessed data
+        // Enhanced debug logging with quality metrics and timing analysis
         if (process.env.NODE_ENV === 'development' && Math.floor(effectiveTimeMs / 1000) % 5 === 0 && Math.floor(effectiveTimeMs) % 1000 < 100) {
             if (currentLyric) {
                 const isProcessed = 'calculatedEndTime' in currentLyric;
                 const endTime = isProcessed ? (currentLyric as ProcessedLyric).calculatedEndTime : currentLyric.startTime + 5000;
                 const timeLeft = Math.max(0, Math.floor((endTime - effectiveTimeMs) / 1000));
                 const gapInfo = isProcessed && (currentLyric as ProcessedLyric).gapToNext > 10000 ? ` (${((currentLyric as ProcessedLyric).gapToNext / 1000).toFixed(1)}s gap detected)` : '';
-                console.log(`[Preview] Current lyric at ${Math.floor(effectiveTimeMs/1000)}s: "${currentLyric.line.substring(0, 30)}..." | Ends in: ${timeLeft}s${gapInfo}`);
+                
+                // Enhanced timing analysis
+                const wordTimingQuality = currentLyric.words ? 
+                    currentLyric.words.filter(w => w.startTime > 0).length / currentLyric.words.length * 100 : 0;
+                const qualityIndicator = wordTimingQuality > 90 ? '🟢' : wordTimingQuality > 70 ? '🟡' : '🔴';
+                
+                // Show current word being highlighted
+                let currentWordInfo = '';
+                if (currentLyric?.words) {
+                    const activeWord = currentLyric.words.find((word, i) => {
+                        const nextWord = currentLyric?.words?.[i + 1];
+                        return word.startTime <= effectiveTimeMs && (!nextWord || effectiveTimeMs < nextWord.startTime);
+                    });
+                    if (activeWord) {
+                        currentWordInfo = ` | Active word: "${activeWord.text}"`;
+                    }
+                }
+                
+                // Add timing validation info
+                const timingValidation = `| Video time: ${(currentTimeMs/1000).toFixed(1)}s | Effective: ${(effectiveTimeMs/1000).toFixed(1)}s | Lyric start: ${(currentLyric.startTime/1000).toFixed(1)}s`;
+                
+                console.log(`[Preview] ${qualityIndicator} Current lyric at ${Math.floor(effectiveTimeMs/1000)}s: "${currentLyric.line.substring(0, 30)}..." | Ends in: ${timeLeft}s${gapInfo} | Word timing: ${wordTimingQuality.toFixed(0)}%${currentWordInfo} ${timingValidation}`);
             } else {
-                console.log(`[Preview] No active lyric at ${Math.floor(effectiveTimeMs/1000)}s`);
+                // Enhanced debugging for when no lyric is active
+                const nextLyric = syncedLyrics.find(lyric => lyric.startTime > effectiveTimeMs);
+                const nextLyricInfo = nextLyric ? ` | Next: "${nextLyric.line.substring(0, 20)}..." at ${(nextLyric.startTime/1000).toFixed(1)}s` : '';
+                console.log(`[Preview] No active lyric at ${Math.floor(effectiveTimeMs/1000)}s | Video time: ${(currentTimeMs/1000).toFixed(1)}s${nextLyricInfo}`);
             }
         }
     }
@@ -179,23 +203,66 @@ const drawFrame = (
             let currentX = (canvas.width - ctx.measureText(line.text).width) / 2;
             ctx.textAlign = 'left';
             line.words.forEach((word, wordIndex) => {
-                // Improved word highlighting with accurate timing
+                // Advanced word highlighting with gradient effect and precise timing
+                let highlightProgress = 0;
                 let isHighlighted = false;
                 
                 if (word.startTime <= effectiveTimeMs) {
                     const nextWord = line.words[wordIndex + 1];
-                    if (nextWord) {
-                        // Highlight until the next word starts
+                    if (nextWord && nextWord.startTime > 0) {
+                        // Use actual next word timing for precise control
+                        const wordDuration = nextWord.startTime - word.startTime;
+                        const timeInWord = effectiveTimeMs - word.startTime;
+                        highlightProgress = Math.min(1, Math.max(0, timeInWord / wordDuration));
                         isHighlighted = effectiveTimeMs < nextWord.startTime;
                     } else {
-                        // Last word in line - use a reasonable duration based on word length
-                        const wordDuration = Math.max(600, word.text.length * 120); // Min 0.6s, or 120ms per character
-                        isHighlighted = effectiveTimeMs < word.startTime + wordDuration;
+                        // Last word in line or next word has no timing - use adaptive duration
+                        const wordDuration = Math.max(400, Math.min(1500, word.text.length * 120)); // 120ms per character, 400ms min, 1.5s max
+                        const timeInWord = effectiveTimeMs - word.startTime;
+                        highlightProgress = Math.min(1, Math.max(0, timeInWord / wordDuration));
+                        isHighlighted = timeInWord < wordDuration;
                     }
                 }
                 
-                ctx.fillStyle = isHighlighted ? 'hsl(170 58% 54%)' : 'white';
+                // Smooth gradient highlighting (research-backed technique)
+                if (isHighlighted && highlightProgress > 0) {
+                    const wordWidth = ctx.measureText(word.text).width;
+                    
+                    if (highlightProgress < 1) {
+                        // Progressive highlight with smooth gradient transition
+                        const gradient = ctx.createLinearGradient(currentX, lineY, currentX + wordWidth, lineY);
+                        gradient.addColorStop(0, 'hsl(170, 58%, 54%)'); // Highlighted color
+                        gradient.addColorStop(highlightProgress * 0.8, 'hsl(170, 58%, 54%)');
+                        gradient.addColorStop(highlightProgress * 0.9, 'hsl(170, 40%, 70%)'); // Transition color
+                        gradient.addColorStop(Math.min(1, highlightProgress + 0.1), 'rgba(255, 255, 255, 0.9)'); // Unhighlighted color
+                        gradient.addColorStop(1, 'white');
+                        ctx.fillStyle = gradient;
+                    } else {
+                        // Fully highlighted with subtle glow effect
+                        ctx.fillStyle = 'hsl(170, 58%, 54%)';
+                        ctx.shadowColor = 'hsl(170, 58%, 54%)';
+                        ctx.shadowBlur = 8;
+                    }
+                } else if (isHighlighted) {
+                    // Fallback solid highlight
+                    ctx.fillStyle = 'hsl(170, 58%, 54%)';
+                } else {
+                    // Unhighlighted text with subtle shadow for readability
+                    ctx.fillStyle = 'white';
+                    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+                    ctx.shadowBlur = 2;
+                    ctx.shadowOffsetX = 1;
+                    ctx.shadowOffsetY = 1;
+                }
+                
                 ctx.fillText(word.text, currentX, lineY);
+                
+                // Reset shadow effects
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                
                 currentX += ctx.measureText(word.text + ' ').width;
             });
         });
@@ -239,7 +306,9 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     console.log('🔍 [LYRICS DEBUG] Raw lyrics data:', sortedLyrics.map(lyric => ({
       line: lyric.line.substring(0, 40) + '...',
       startTime: lyric.startTime,
-      startTimeSeconds: (lyric.startTime / 1000).toFixed(1)
+      startTimeSeconds: (lyric.startTime / 1000).toFixed(1),
+      firstWordTime: lyric.words?.[0]?.startTime || 'N/A',
+      firstWordTimeSeconds: lyric.words?.[0]?.startTime ? (lyric.words[0].startTime / 1000).toFixed(1) : 'N/A'
     })));
 
     // Preprocess lyrics to fix timing gaps and normalize durations
@@ -605,9 +674,9 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       <div className="w-full max-w-2xl p-4 bg-card/50 backdrop-blur-sm rounded-lg border shadow-lg">
         <div className="flex items-center gap-4">
           <Button onClick={togglePlay} size="icon" disabled={isExporting}>{isPlaying ? <Pause /> : <Play />}</Button>
-          <span className="text-sm font-mono w-12 text-center">{formatTime(currentTime)}</span>
+          <span className="text-sm font-mono w-12 text-center text-foreground font-medium">{formatTime(currentTime)}</span>
           <Slider value={[currentTime]} max={duration} step={0.1} onValueChange={handleSeek} className="flex-grow" disabled={isExporting}/>
-          <span className="text-sm font-mono w-12 text-center">{formatTime(duration)}</span>
+          <span className="text-sm font-mono w-12 text-center text-foreground font-medium">{formatTime(duration)}</span>
         </div>
       </div>
       <div className="flex gap-4">

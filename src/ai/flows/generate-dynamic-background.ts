@@ -145,44 +145,64 @@ const generateDynamicBackgroundFlow = ai.defineFlow(
       throw new Error('Could not generate image prompts from lyrics.');
     }
 
-    // Step 2: Generate an image for each prompt in parallel with fallback for Google AI service issues
-    const imageGenerationPromises = output.prompts.map(async scenePrompt => {
-      try {
-        const {media} = await ai.generate({
-          model: 'googleai/gemini-2.0-flash-preview-image-generation',
-          prompt: scenePrompt.prompt,
-          config: {
-            responseModalities: ['TEXT', 'IMAGE'],
-            safetySettings: [
-              {category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE'},
-              {category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE'},
-              {category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE'},
-              {category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE'},
-            ],
-          },
-        });
+    // Step 2: Generate an image for each prompt in parallel with enhanced fallback and retry logic
+    const imageGenerationPromises = output.prompts.map(async (scenePrompt, index) => {
+      const maxRetries = 2;
+      let lastError: any = null;
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`🖼️ [SCENE ${index + 1}] Generating image (attempt ${attempt}/${maxRetries})...`);
+          
+          const {media} = await ai.generate({
+            model: 'googleai/gemini-2.0-flash-preview-image-generation',
+            prompt: scenePrompt.prompt,
+            config: {
+              responseModalities: ['TEXT', 'IMAGE'],
+              safetySettings: [
+                {category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE'},
+                {category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE'},
+                {category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE'},
+                {category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE'},
+              ],
+            },
+          });
 
-        if (!media?.url) {
-          throw new Error('No media URL returned');
+          if (!media?.url) {
+            throw new Error('No media URL returned from image generation');
+          }
+
+          console.log(`✅ [SCENE ${index + 1}] Image generated successfully`);
+          return {
+            startTime: scenePrompt.startTime,
+            backgroundImageDataUri: media.url,
+          };
+        } catch (error) {
+          lastError = error;
+          console.warn(`❌ [SCENE ${index + 1}] Attempt ${attempt} failed:`, error instanceof Error ? error.message : String(error));
+          
+          // If this isn't the last attempt, wait before retrying
+          if (attempt < maxRetries) {
+            console.log(`🔄 [SCENE ${index + 1}] Retrying in 2 seconds...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
         }
-
-        return {
-          startTime: scenePrompt.startTime,
-          backgroundImageDataUri: media.url,
-        };
-      } catch (error) {
-        // Enhanced fallback with gradient backgrounds that match the song theme
-        console.warn(`Image generation failed for prompt: "${scenePrompt.prompt}". Using themed fallback. Error:`, error);
-        
-        // Create themed gradient backgrounds based on prompt content
-        const gradientColors = getThemeGradient(scenePrompt.prompt);
-        const gradientDataUri = createGradientDataUri(gradientColors);
-        
-        return {
-          startTime: scenePrompt.startTime,
-          backgroundImageDataUri: gradientDataUri,
-        };
       }
+      
+      // All attempts failed, use enhanced themed fallback
+      console.warn(`🎨 [SCENE ${index + 1}] All generation attempts failed. Using themed gradient fallback.`);
+      console.warn(`🔍 [SCENE ${index + 1}] Final error:`, lastError instanceof Error ? lastError.message : String(lastError));
+      
+      // Create themed gradient backgrounds based on prompt content
+      const gradientColors = getThemeGradient(scenePrompt.prompt);
+      const gradientDataUri = createGradientDataUri(gradientColors);
+      
+      console.log(`🌈 [SCENE ${index + 1}] Created gradient fallback: ${gradientColors[0]} → ${gradientColors[1]}`);
+      
+      return {
+        startTime: scenePrompt.startTime,
+        backgroundImageDataUri: gradientDataUri,
+      };
     });
 
     const scenes = await Promise.all(imageGenerationPromises);

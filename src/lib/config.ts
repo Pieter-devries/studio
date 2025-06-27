@@ -86,7 +86,7 @@ export function logConfigStatus(): void {
   console.log('🔧 Configuration Status:');
   console.log(`  Environment: ${config.app.environment}`);
   console.log(`  App URL: ${config.app.url}`);
-  console.log(`  Google AI API Key: ${sanitizeApiKey(config.googleAI.apiKey)}`);
+  console.log(`  Google AI: ${config.googleAI.apiKey ? `Configured (${sanitizeApiKey(config.googleAI.apiKey)})` : 'Not configured'}`);
   console.log(`  Firebase: ${config.firebase ? 'Configured' : 'Not configured'}`);
   
   if (process.env.NODE_ENV === 'development') {

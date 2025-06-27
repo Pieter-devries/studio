@@ -10,7 +10,7 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 import {generateDynamicBackground} from './generate-dynamic-background';
-import {syncLyricsWithAudio} from './sync-lyrics-with-audio';
+import {transcribeAndAlignLyrics} from './transcribe-and-align-lyrics';
 import { BackgroundSceneSchema, SyncedLyricSchema } from '@/ai/schema';
 
 // Input schema for the main orchestration flow
@@ -29,6 +29,12 @@ const OrchestrateVideoCreationOutputSchema = z.object({
   backgroundScenes: z.array(BackgroundSceneSchema),
   syncedLyrics: z.array(SyncedLyricSchema),
   title: z.string(),
+  qualityMetrics: z.object({
+    wordErrorRate: z.number().describe('Estimated word error rate (0-1)'),
+    meanPhonemeOffset: z.number().describe('Average timing offset in milliseconds'),
+    syncAccuracy: z.number().describe('Overall synchronization accuracy (0-1)'),
+    coveragePercentage: z.number().describe('Percentage of lyrics successfully synchronized')
+  }).optional().describe('Quality assessment metrics for the synchronization')
 });
 export type OrchestrateVideoCreationOutput = z.infer<
   typeof OrchestrateVideoCreationOutputSchema
@@ -133,69 +139,125 @@ const orchestrateVideoCreationFlow = ai.defineFlow(
     const MAX_ITERATIONS = 3; // Prevent infinite loops
     let iteration = 0;
     
-    // Initial generation
-    console.log('🎬 Starting initial video generation...');
+    // Enhanced generation with new transcription method
+    console.log('🎬 Starting enhanced video generation with phoneme-level alignment...');
     let [syncedLyricsResult, backgroundResult] = await Promise.all([
-      syncLyricsWithAudio({audioDataUri, lyrics}),
+      transcribeAndAlignLyrics({audioDataUri, structuredLyrics: lyrics}),
       generateDynamicBackground({audioDataUri, lyrics}),
     ]);
 
     if (!syncedLyricsResult?.syncedLyrics || !backgroundResult?.scenes) {
-      throw new Error('Failed to get complete data from AI flows. Please try again.');
+      throw new Error('Failed to get complete data from enhanced AI flows. Please try again.');
     }
 
-    // Simple quality check (no automatic fixes for now)
-    console.log('🔍 Performing simple quality analysis...');
+    // Enhanced quality reporting
+    console.log('🔍 Enhanced quality analysis results:');
     console.log(`📊 Generated: ${backgroundResult.scenes.length} background scenes, ${syncedLyricsResult.syncedLyrics.length} lyric lines`);
     
-    // Analyze lyric timing
+    // Display quality metrics
+    if (syncedLyricsResult.qualityMetrics) {
+      const metrics = syncedLyricsResult.qualityMetrics;
+      console.log('🎯 Synchronization Quality Metrics:');
+      console.log(`  ✅ Sync Accuracy: ${(metrics.syncAccuracy * 100).toFixed(1)}%`);
+      console.log(`  📝 Coverage: ${metrics.coveragePercentage.toFixed(1)}%`);
+      console.log(`  ⏱️  Mean Timing Offset: ${metrics.meanPhonemeOffset.toFixed(1)}ms`);
+      console.log(`  ❌ Word Error Rate: ${(metrics.wordErrorRate * 100).toFixed(1)}%`);
+      
+      // Quality assessment
+      if (metrics.syncAccuracy >= 0.90) {
+        console.log('  🌟 EXCELLENT: Professional-grade synchronization achieved!');
+      } else if (metrics.syncAccuracy >= 0.80) {
+        console.log('  ✅ GOOD: High-quality synchronization suitable for most uses');
+      } else if (metrics.syncAccuracy >= 0.70) {
+        console.log('  ⚠️  FAIR: Acceptable quality but may need manual review');
+      } else {
+        console.log('  ❌ POOR: Quality below recommended threshold, consider re-processing');
+      }
+    }
+    
+    // Analyze lyric timing with enhanced metrics
     if (syncedLyricsResult.syncedLyrics.length > 0) {
       const firstLyric = syncedLyricsResult.syncedLyrics[0];
       const lastLyric = syncedLyricsResult.syncedLyrics[syncedLyricsResult.syncedLyrics.length - 1];
       
-      console.log('🎵 Lyric Analysis:');
+      console.log('🎵 Enhanced Lyric Analysis:');
       console.log(`  📍 First lyric: "${firstLyric.line}" at ${(firstLyric.startTime / 1000).toFixed(1)}s`);
       console.log(`  📍 Last lyric: "${lastLyric.line}" at ${(lastLyric.startTime / 1000).toFixed(1)}s`);
       
+      // Analyze word-level timing quality
+      let totalWords = 0;
+      let wordsWithTiming = 0;
+      syncedLyricsResult.syncedLyrics.forEach(lyric => {
+        if (lyric.words) {
+          totalWords += lyric.words.length;
+          wordsWithTiming += lyric.words.filter(word => word.startTime > 0).length;
+        }
+      });
+      
+      const wordTimingCoverage = totalWords > 0 ? (wordsWithTiming / totalWords * 100) : 0;
+      console.log(`  🎯 Word-level timing coverage: ${wordTimingCoverage.toFixed(1)}% (${wordsWithTiming}/${totalWords} words)`);
+      
       // Check for timing issues
       if (firstLyric.startTime === 0) {
-        console.log(`  ⚠️  Warning: First lyric starts at 0:00 - may need vocal detection`);
+        console.log(`  ⚠️  Note: First lyric starts at 0:00 - this may be correct or indicate early vocal start`);
       }
       
-      // Log a few sample lyrics for timing verification
-      console.log('  📝 Sample lyrics timing:');
-      syncedLyricsResult.syncedLyrics.slice(0, 5).forEach((lyric, i) => {
-        const timeStr = `${Math.floor(lyric.startTime / 60000)}:${String(Math.floor((lyric.startTime % 60000) / 1000)).padStart(2, '0')}`;
-        console.log(`    ${i + 1}. [${timeStr}] "${lyric.line.substring(0, 40)}${lyric.line.length > 40 ? '...' : ''}"`);
-      });
+      // Sample word timing for first line
+      if (firstLyric.words && firstLyric.words.length > 0) {
+        console.log('  📝 First line word timing sample:');
+        firstLyric.words.slice(0, 3).forEach((word, i) => {
+          const timeStr = `${Math.floor(word.startTime / 60000)}:${String(Math.floor((word.startTime % 60000) / 1000)).padStart(2, '0')}.${String(word.startTime % 1000).padStart(3, '0')}`;
+          console.log(`    ${i + 1}. [${timeStr}] "${word.text}"`);
+        });
+      }
     }
     
-    // Analyze background scene distribution
+    // Analyze background scene distribution with enhanced metrics
     if (backgroundResult.scenes.length > 0) {
-      console.log('🖼️ Background Scene Analysis:');
-      backgroundResult.scenes.forEach((scene, i) => {
+      console.log('🖼️ Enhanced Background Scene Analysis:');
+      const sortedScenes = [...backgroundResult.scenes].sort((a, b) => a.startTime - b.startTime);
+      
+      sortedScenes.forEach((scene, i) => {
         const timeStr = `${Math.floor(scene.startTime / 60000)}:${String(Math.floor((scene.startTime % 60000) / 1000)).padStart(2, '0')}`;
         console.log(`  ${i + 1}. Scene at [${timeStr}]`);
       });
       
-      // Check for large gaps
-      const scenes = [...backgroundResult.scenes].sort((a, b) => a.startTime - b.startTime);
-      for (let i = 1; i < scenes.length; i++) {
-        const gap = (scenes[i].startTime - scenes[i-1].startTime) / 1000;
+      // Enhanced gap analysis
+      let totalGapTime = 0;
+      let largeGaps = 0;
+      for (let i = 1; i < sortedScenes.length; i++) {
+        const gap = (sortedScenes[i].startTime - sortedScenes[i-1].startTime) / 1000;
+        totalGapTime += gap;
         if (gap > 90) {
-          console.log(`  ⚠️  Warning: Large gap of ${gap.toFixed(1)}s between scenes ${i} and ${i+1}`);
+          largeGaps++;
+          console.log(`  ⚠️  Large gap: ${gap.toFixed(1)}s between scenes ${i} and ${i+1}`);
+        } else if (gap > 60) {
+          console.log(`  ℹ️  Moderate gap: ${gap.toFixed(1)}s between scenes ${i} and ${i+1}`);
         }
+      }
+      
+      const averageGap = sortedScenes.length > 1 ? totalGapTime / (sortedScenes.length - 1) : 0;
+      console.log(`  📊 Average time between scenes: ${averageGap.toFixed(1)}s`);
+      console.log(`  📊 Large gaps (>90s): ${largeGaps}`);
+      
+      if (largeGaps === 0) {
+        console.log('  ✅ Excellent scene distribution - no large gaps detected');
+      } else if (largeGaps <= 2) {
+        console.log('  ⚠️  Acceptable scene distribution - few large gaps');
+      } else {
+        console.log('  ❌ Poor scene distribution - many large gaps may affect viewing experience');
       }
     }
     
-    console.log('✅ Quality analysis complete - using first-generation results (no auto-fixes)');
+    console.log('✅ Enhanced quality analysis complete - using advanced synchronization results');
 
-    // Return the final result
+    // Return the enhanced result
     const result = {
       audioUrl: audioDataUri,
       backgroundScenes: backgroundResult.scenes,
       syncedLyrics: syncedLyricsResult.syncedLyrics,
       title,
+      qualityMetrics: syncedLyricsResult.qualityMetrics
     };
 
     console.log(`🎉 Video orchestration complete! Final output: ${backgroundResult.scenes.length} scenes, ${syncedLyricsResult.syncedLyrics.length} lyric lines`);
