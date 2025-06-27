@@ -123,57 +123,54 @@ const drawFrame = (
     }
 
     // --- LYRICS RENDERING ---
-    const effectiveTimeMs = currentTimeMs - LYRIC_OFFSET_MS;
+    const effectiveTimeMs = currentTimeMs; // Use raw time, no offset adjustments
     let currentLyric: SyncedLyric | null = null;
     
     if (syncedLyrics && syncedLyrics.length > 0) {
-        // Use preprocessed timing data for more accurate lyric display
+        // STRICT SRT TIMING: Use exact SRT startTime and endTime only
+        // No preprocessing, no gap calculations, no adaptive timing
         for (let i = 0; i < syncedLyrics.length; i++) {
             const line = syncedLyrics[i];
-            const isProcessed = 'calculatedEndTime' in line;
-            const endTime = isProcessed ? (line as ProcessedLyric).calculatedEndTime : line.startTime + 5000;
             
-            // Check if current time is within this line's calculated duration
+            // Find the end time for this lyric
+            let endTime: number;
+            if (line.words && line.words.length > 0) {
+                // Calculate end time from word distribution and line timing
+                const nextLyric = syncedLyrics[i + 1];
+                const maxWordTime = Math.max(...line.words.map(w => w.startTime));
+                const lineSpan = maxWordTime - line.startTime;
+                // End time is max word time + estimated duration for last word
+                endTime = maxWordTime + Math.max(lineSpan / line.words.length, 500);
+                // But don't exceed next lyric start time
+                if (nextLyric && endTime > nextLyric.startTime) {
+                    endTime = nextLyric.startTime;
+                }
+            } else {
+                // Fallback: estimate from next lyric or use default duration
+                const nextLyric = syncedLyrics[i + 1];
+                endTime = nextLyric ? nextLyric.startTime : (line.startTime + 3000);
+            }
+            
+            // STRICT timing check - must be within the exact SRT window
             if (line.startTime <= effectiveTimeMs && effectiveTimeMs < endTime) {
                 currentLyric = line;
+                console.log(`🎯 [STRICT-SRT] Found active lyric: "${line.line.substring(0, 30)}..." | SRT: ${(line.startTime/1000).toFixed(1)}s-${(endTime/1000).toFixed(1)}s | Time: ${(effectiveTimeMs/1000).toFixed(1)}s`);
                 break;
             }
         }
         
-        // Enhanced debug logging with quality metrics and timing analysis
-        if (process.env.NODE_ENV === 'development' && Math.floor(effectiveTimeMs / 1000) % 5 === 0 && Math.floor(effectiveTimeMs) % 1000 < 100) {
-            if (currentLyric) {
-                const isProcessed = 'calculatedEndTime' in currentLyric;
-                const endTime = isProcessed ? (currentLyric as ProcessedLyric).calculatedEndTime : currentLyric.startTime + 5000;
-                const timeLeft = Math.max(0, Math.floor((endTime - effectiveTimeMs) / 1000));
-                const gapInfo = isProcessed && (currentLyric as ProcessedLyric).gapToNext > 10000 ? ` (${((currentLyric as ProcessedLyric).gapToNext / 1000).toFixed(1)}s gap detected)` : '';
-                
-                // Enhanced timing analysis
-                const wordTimingQuality = currentLyric.words ? 
-                    currentLyric.words.filter(w => w.startTime > 0).length / currentLyric.words.length * 100 : 0;
-                const qualityIndicator = wordTimingQuality > 90 ? '🟢' : wordTimingQuality > 70 ? '🟡' : '🔴';
-                
-                // Show current word being highlighted
-                let currentWordInfo = '';
-                if (currentLyric?.words) {
-                    const activeWord = currentLyric.words.find((word, i) => {
-                        const nextWord = currentLyric?.words?.[i + 1];
-                        return word.startTime <= effectiveTimeMs && (!nextWord || effectiveTimeMs < nextWord.startTime);
-                    });
-                    if (activeWord) {
-                        currentWordInfo = ` | Active word: "${activeWord.text}"`;
-                    }
-                }
-                
-                // Add timing validation info
-                const timingValidation = `| Video time: ${(currentTimeMs/1000).toFixed(1)}s | Effective: ${(effectiveTimeMs/1000).toFixed(1)}s | Lyric start: ${(currentLyric.startTime/1000).toFixed(1)}s`;
-                
-                console.log(`[Preview] ${qualityIndicator} Current lyric at ${Math.floor(effectiveTimeMs/1000)}s: "${currentLyric.line.substring(0, 30)}..." | Ends in: ${timeLeft}s${gapInfo} | Word timing: ${wordTimingQuality.toFixed(0)}%${currentWordInfo} ${timingValidation}`);
-            } else {
-                // Enhanced debugging for when no lyric is active
+        // Enhanced debug logging for SRT timing validation
+        if (process.env.NODE_ENV === 'development' && Math.floor(effectiveTimeMs / 1000) % 2 === 0 && Math.floor(effectiveTimeMs) % 1000 < 100) {
+            if (!currentLyric) {
                 const nextLyric = syncedLyrics.find(lyric => lyric.startTime > effectiveTimeMs);
-                const nextLyricInfo = nextLyric ? ` | Next: "${nextLyric.line.substring(0, 20)}..." at ${(nextLyric.startTime/1000).toFixed(1)}s` : '';
-                console.log(`[Preview] No active lyric at ${Math.floor(effectiveTimeMs/1000)}s | Video time: ${(currentTimeMs/1000).toFixed(1)}s${nextLyricInfo}`);
+                const nextInfo = nextLyric ? ` | Next: "${nextLyric.line.substring(0, 20)}..." at ${(nextLyric.startTime/1000).toFixed(1)}s` : '';
+                console.log(`🔍 [SRT-DEBUG] No active lyric at ${(effectiveTimeMs/1000).toFixed(1)}s${nextInfo}`);
+                
+                // Debug first few lyrics timing
+                if (syncedLyrics.length > 0) {
+                    const first3 = syncedLyrics.slice(0, 3).map(l => `"${l.line.substring(0, 15)}..." @ ${(l.startTime/1000).toFixed(1)}s`).join(', ');
+                    console.log(`🔍 [SRT-DEBUG] First lyrics: ${first3}`);
+                }
             }
         }
     }
@@ -183,89 +180,70 @@ const drawFrame = (
         ctx.font = `bold ${FONT_SIZE}px Inter, sans-serif`;
         ctx.textBaseline = 'middle';
         
-        let lines = wrappedLinesCache.get(currentLyric.line);
-        if (!lines) {
-            lines = wrapLyrics(ctx, canvas.width, currentLyric.words);
-            wrappedLinesCache.set(currentLyric.line, lines);
+        // SIMPLIFIED: Just show the full lyric line with proper word wrapping
+        // No word-level highlighting, no complex timing calculations
+        // Just display the lyric with line breaks when we're in the SRT time window
+        
+        // Word wrap the lyric text to fit canvas width
+        const maxWidth = canvas.width * 0.9; // Use 90% of canvas width
+        const words = currentLyric.line.split(' ');
+        const lines: string[] = [];
+        let currentLine = '';
+        
+        for (const word of words) {
+            const testLine = currentLine ? `${currentLine} ${word}` : word;
+            const testWidth = ctx.measureText(testLine).width;
+            
+            if (testWidth > maxWidth && currentLine) {
+                // Line is too wide, push current line and start new one
+                lines.push(currentLine);
+                currentLine = word;
+            } else {
+                currentLine = testLine;
+            }
         }
-
+        
+        // Don't forget the last line
+        if (currentLine) {
+            lines.push(currentLine);
+        }
+        
         const totalTextHeight = lines.length * LINE_HEIGHT;
         const startY = canvas.height * 0.85 - totalTextHeight / 2;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)', ctx.shadowColor = 'black', ctx.shadowBlur = 15;
-        const maxLineWidth = lines.reduce((max, line) => Math.max(max, ctx.measureText(line.text).width), 0);
+        
+        // Background box
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowColor = 'black';
+        ctx.shadowBlur = 15;
+        const maxLineWidth = lines.reduce((max, line) => Math.max(max, ctx.measureText(line).width), 0);
         ctx.beginPath();
         ctx.roundRect((canvas.width - maxLineWidth) / 2 - PADDING, startY - LINE_HEIGHT / 2 - PADDING, maxLineWidth + PADDING * 2, totalTextHeight + PADDING * 2, [16]);
         ctx.fill();
         ctx.shadowColor = 'transparent';
 
+        // Simple text rendering - no highlighting, just plain white text
         lines.forEach((line, lineIndex) => {
             const lineY = startY + lineIndex * LINE_HEIGHT;
-            let currentX = (canvas.width - ctx.measureText(line.text).width) / 2;
-            ctx.textAlign = 'left';
-            line.words.forEach((word, wordIndex) => {
-                // Advanced word highlighting with gradient effect and precise timing
-                let highlightProgress = 0;
-                let isHighlighted = false;
-                
-                if (word.startTime <= effectiveTimeMs) {
-                    const nextWord = line.words[wordIndex + 1];
-                    if (nextWord && nextWord.startTime > 0) {
-                        // Use actual next word timing for precise control
-                        const wordDuration = nextWord.startTime - word.startTime;
-                        const timeInWord = effectiveTimeMs - word.startTime;
-                        highlightProgress = Math.min(1, Math.max(0, timeInWord / wordDuration));
-                        isHighlighted = effectiveTimeMs < nextWord.startTime;
-                    } else {
-                        // Last word in line or next word has no timing - use adaptive duration
-                        const wordDuration = Math.max(400, Math.min(1500, word.text.length * 120)); // 120ms per character, 400ms min, 1.5s max
-                        const timeInWord = effectiveTimeMs - word.startTime;
-                        highlightProgress = Math.min(1, Math.max(0, timeInWord / wordDuration));
-                        isHighlighted = timeInWord < wordDuration;
-                    }
-                }
-                
-                // Smooth gradient highlighting (research-backed technique)
-                if (isHighlighted && highlightProgress > 0) {
-                    const wordWidth = ctx.measureText(word.text).width;
-                    
-                    if (highlightProgress < 1) {
-                        // Progressive highlight with smooth gradient transition
-                        const gradient = ctx.createLinearGradient(currentX, lineY, currentX + wordWidth, lineY);
-                        gradient.addColorStop(0, 'hsl(170, 58%, 54%)'); // Highlighted color
-                        gradient.addColorStop(highlightProgress * 0.8, 'hsl(170, 58%, 54%)');
-                        gradient.addColorStop(highlightProgress * 0.9, 'hsl(170, 40%, 70%)'); // Transition color
-                        gradient.addColorStop(Math.min(1, highlightProgress + 0.1), 'rgba(255, 255, 255, 0.9)'); // Unhighlighted color
-                        gradient.addColorStop(1, 'white');
-                        ctx.fillStyle = gradient;
-                    } else {
-                        // Fully highlighted with subtle glow effect
-                        ctx.fillStyle = 'hsl(170, 58%, 54%)';
-                        ctx.shadowColor = 'hsl(170, 58%, 54%)';
-                        ctx.shadowBlur = 8;
-                    }
-                } else if (isHighlighted) {
-                    // Fallback solid highlight
-                    ctx.fillStyle = 'hsl(170, 58%, 54%)';
-                } else {
-                    // Unhighlighted text with subtle shadow for readability
-                    ctx.fillStyle = 'white';
-                    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-                    ctx.shadowBlur = 2;
-                    ctx.shadowOffsetX = 1;
-                    ctx.shadowOffsetY = 1;
-                }
-                
-                ctx.fillText(word.text, currentX, lineY);
-                
-                // Reset shadow effects
-                ctx.shadowColor = 'transparent';
-                ctx.shadowBlur = 0;
-                ctx.shadowOffsetX = 0;
-                ctx.shadowOffsetY = 0;
-                
-                currentX += ctx.measureText(word.text + ' ').width;
-            });
+            ctx.textAlign = 'center';
+            ctx.fillStyle = 'white';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+            ctx.shadowBlur = 2;
+            ctx.shadowOffsetX = 1;
+            ctx.shadowOffsetY = 1;
+            
+            ctx.fillText(line, canvas.width / 2, lineY);
+            
+            // Reset shadow effects
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
         });
+        
+        // ENHANCED DEBUG: Show exactly what we're displaying vs what the timing says
+        const endTimeDisplay = 'calculatedEndTime' in currentLyric ? 
+            ((currentLyric as ProcessedLyric).calculatedEndTime/1000).toFixed(1) : 'unknown';
+        console.log(`🎬 [DISPLAY] Showing: "${currentLyric.line.substring(0, 50)}..." | SRT timing: ${(currentLyric.startTime/1000).toFixed(1)}s-${endTimeDisplay}s | Current time: ${(effectiveTimeMs/1000).toFixed(1)}s`);
     }
 };
 
@@ -296,49 +274,12 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
     });
   }, [backgroundScenes]);
 
-  // Add preprocessing for synchronized lyrics to fix timing issues
-  const processedLyrics = useMemo(() => {
+  // Simple sorting - no preprocessing that could interfere with SRT timing
+  const sortedLyrics = useMemo(() => {
     if (!syncedLyrics || syncedLyrics.length === 0) return [];
-
-    // Defensive sort to ensure chronological order
-    const sortedLyrics = [...syncedLyrics].sort((a, b) => a.startTime - b.startTime);
-    
-    console.log('🔍 [LYRICS DEBUG] Raw lyrics data:', sortedLyrics.map(lyric => ({
-      line: lyric.line.substring(0, 40) + '...',
-      startTime: lyric.startTime,
-      startTimeSeconds: (lyric.startTime / 1000).toFixed(1),
-      firstWordTime: lyric.words?.[0]?.startTime || 'N/A',
-      firstWordTimeSeconds: lyric.words?.[0]?.startTime ? (lyric.words[0].startTime / 1000).toFixed(1) : 'N/A'
-    })));
-
-    // Preprocess lyrics to fix timing gaps and normalize durations
-    const processed = sortedLyrics.map((lyric, index) => {
-      const nextLyric = sortedLyrics[index + 1];
-      
-      // Determine the practical end time for the current lyric line.
-      // It should not overlap with the next line, and it shouldn't display for too long.
-      const calculatedEndTime = nextLyric 
-        ? Math.min(lyric.startTime + 8000, nextLyric.startTime) // Cap at 8s or when next lyric starts
-        : lyric.startTime + 5000; // For last lyric, default duration 5s
-
-      // The actual gap is the time between this line's disappearance and the next one's appearance.
-      const gapToNext = nextLyric ? nextLyric.startTime - calculatedEndTime : 0;
-      
-      return {
-        ...lyric,
-        calculatedEndTime,
-        gapToNext,
-      };
-    });
-
-    console.log('🔍 [LYRICS DEBUG] Processed lyrics with gaps:', processed.map(l => ({
-        line: l.line.substring(0, 40) + '...',
-        startTime: (l.startTime/1000).toFixed(1),
-        endTime: (l.calculatedEndTime/1000).toFixed(1),
-        gap: (l.gapToNext/1000).toFixed(1)
-    })));
-    
-    return processed;
+    const sorted = [...syncedLyrics].sort((a, b) => a.startTime - b.startTime);
+    console.log('🎯 [SRT-SIMPLE] Using raw SRT timing for', sorted.length, 'lyrics');
+    return sorted;
   }, [syncedLyrics]);
 
   // Enhanced audio timing system using Web Audio API principles
@@ -425,11 +366,11 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
         // Update UI state for slider and time display
         setCurrentTime(audio.currentTime);
         
-        // Use precise audio timing for better synchronization
-        const preciseTime = getPreciseAudioTime() * 1000; // Convert to milliseconds
+        // Use simple audio timing - no complex Web Audio API
+        const currentTimeMs = audio.currentTime * 1000; // Convert to milliseconds
         
         // Draw the canvas frame with the most up-to-date audio time
-        drawFrame(ctx, canvas, preciseTime, audio.duration, backgroundImages, processedLyrics, wrappedLinesCache.current);
+        drawFrame(ctx, canvas, currentTimeMs, audio.duration, backgroundImages, sortedLyrics, wrappedLinesCache.current);
       }
       
       // CRITICAL FIX: Only continue loop if audio is playing
@@ -485,7 +426,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
       audio.removeEventListener('pause', stopRenderLoop);
       audio.removeEventListener('ended', stopRenderLoop);
     };
-  }, [backgroundImages, processedLyrics, getPreciseAudioTime]);
+  }, [backgroundImages, sortedLyrics]);
 
 
   const handleExport = async () => {
@@ -596,7 +537,7 @@ export function VideoPreview({ videoData, onReset }: VideoPreviewProps) {
           exportTimeMs, 
           exportAudio.duration, 
           backgroundImages, 
-          syncedLyrics, 
+          sortedLyrics, 
           exportCache
         );
         

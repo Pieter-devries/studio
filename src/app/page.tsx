@@ -39,13 +39,13 @@ export default function Home() {
       
       console.log('🎬 Starting simple transcription for human verification...');
       
-      // Step 1: Call transcription API
+      // Step 1: Call lyrics-aware transcription API
       const transcriptionResponse = await fetch('/api/transcribe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ audioDataUri }),
+        body: JSON.stringify({ audioDataUri, userLyrics: lyrics }),
       });
 
       if (!transcriptionResponse.ok) {

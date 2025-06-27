@@ -1,19 +1,20 @@
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 
-// Simple transcription schema - just get basic timing
-const SimpleTranscriptionInputSchema = z.object({
+// Lyrics-aware transcription schema - takes user lyrics and generates timing
+const LyricsAwareTranscriptionInputSchema = z.object({
   audioDataUri: z.string(),
+  userLyrics: z.string(), // User's structured lyrics
 });
 
-const SimpleTranscriptionOutputSchema = z.object({
-  srtContent: z.string(),
+const LyricsAwareTranscriptionOutputSchema = z.object({
+  srtContent: z.string(), // SRT with user's lyrics and AI timing
   audioDuration: z.number(),
   segmentCount: z.number(),
 });
 
-export type SimpleTranscriptionInput = z.infer<typeof SimpleTranscriptionInputSchema>;
-export type SimpleTranscriptionOutput = z.infer<typeof SimpleTranscriptionOutputSchema>;
+export type LyricsAwareTranscriptionInput = z.infer<typeof LyricsAwareTranscriptionInputSchema>;
+export type LyricsAwareTranscriptionOutput = z.infer<typeof LyricsAwareTranscriptionOutputSchema>;
 
 // Function to validate and fix SRT timestamp format
 function validateAndFixSRT(srtContent: string): string {
@@ -114,16 +115,27 @@ function validateAndFixSRT(srtContent: string): string {
   return fixedSRT;
 }
 
-// Simple transcription prompt - just get timing, no complex processing
-const simpleTranscribePrompt = ai.definePrompt({
-  name: 'simpleTranscribePrompt',
+// Lyrics-aware transcription prompt - aligns timing to user's lyrics
+const lyricsAwareTranscribePrompt = ai.definePrompt({
+  name: 'lyricsAwareTranscribePrompt',
   model: 'googleai/gemini-2.5-flash',
-  input: { schema: SimpleTranscriptionInputSchema },
-  output: { schema: SimpleTranscriptionOutputSchema },
-  prompt: `You are a simple audio transcription system. Your job is to transcribe the audio and provide basic timing information in SRT format.
+  input: { schema: LyricsAwareTranscriptionInputSchema },
+  output: { schema: LyricsAwareTranscriptionOutputSchema },
+  prompt: `You are a lyrics-timing alignment system. Your job is to listen to the audio and create SRT timing that aligns to the user's provided lyrics.
 
-AUDIO FILE TO TRANSCRIBE:
+AUDIO FILE TO ANALYZE:
 {{media url=audioDataUri}}
+
+USER'S LYRICS TO ALIGN:
+{{userLyrics}}
+
+CRITICAL INSTRUCTIONS:
+1. Listen to the audio carefully and identify when each line of the user's lyrics is sung/spoken
+2. Use the user's EXACT lyrics as provided - do not change, correct, or interpret them
+3. Create SRT timing that shows each lyric line at the correct time in the audio
+4. Skip any instrumental sections, guitar solos, or sections marked as [Instrumental]
+5. Handle section markers like [Intro], [Verse], [Chorus] by skipping them in the SRT
+6. Break longer lines into readable chunks if needed for better display
 
 CRITICAL TIMESTAMP FORMAT REQUIREMENTS:
 - ALL timestamps MUST be in the exact format: HH:MM:SS,mmm --> HH:MM:SS,mmm
@@ -134,33 +146,25 @@ CRITICAL TIMESTAMP FORMAT REQUIREMENTS:
 - Use COMMA before milliseconds, NOT colon
 - Examples: "00:01:23,456" NOT "01:23:456" or "1:23,456" or "01:23:456"
 
-INSTRUCTIONS:
-1. Listen to the entire audio file carefully
-2. Transcribe all spoken/sung words you can hear
-3. Provide timing information in standard SRT format
-4. Focus on accuracy of timing - this will be reviewed by a human
-5. Don't worry about perfect word-level timing, just get phrase/line timing right
-6. Include instrumental sections as gaps in the SRT
-
 OUTPUT REQUIREMENTS:
 - Standard SRT format with sequential numbering (1, 2, 3...)
+- Use the user's exact lyric text (not your transcription of the audio)
 - Timestamps in EXACT format HH:MM:SS,mmm --> HH:MM:SS,mmm
-- Reasonable line breaks for readability
-- Cover the entire audio duration
-- Be conservative with timing - better to be slightly early than late
+- Reasonable timing - don't make segments too long or too short
+- Cover all sung lyrics from the user's provided text
 
-VALID SRT FORMAT EXAMPLE:
+EXAMPLE OUTPUT FORMAT:
 1
 00:00:15,500 --> 00:00:18,000
-First line of lyrics
+Yeah... let's ride.
 
 2
 00:00:20,000 --> 00:00:25,000
-Second line of lyrics
+Sunrise paints the heartland gold, another day to break the mold
 
 3
-00:01:30,250 --> 00:01:35,750
-Third line after a gap
+00:00:26,000 --> 00:00:30,000
+Got my rig, a trusty friend, on this road that'll never end
 
 INVALID FORMATS TO AVOID:
 - "01:23:456" (missing hour, colon before milliseconds)
@@ -168,22 +172,23 @@ INVALID FORMATS TO AVOID:
 - "01:23,45" (insufficient millisecond digits)
 - "01:23" (missing milliseconds)
 
-Transcribe the audio and return the SRT content along with basic analysis.`,
+Generate SRT content that aligns the user's lyrics to the audio timing.`,
 });
 
-export const simpleTranscriptionFlow = ai.defineFlow(
+export const lyricsAwareTranscriptionFlow = ai.defineFlow(
   {
-    name: 'simpleTranscriptionFlow',
-    inputSchema: SimpleTranscriptionInputSchema,
-    outputSchema: SimpleTranscriptionOutputSchema,
+    name: 'lyricsAwareTranscriptionFlow',
+    inputSchema: LyricsAwareTranscriptionInputSchema,
+    outputSchema: LyricsAwareTranscriptionOutputSchema,
   },
   async (input) => {
-    console.log('🎤 [SIMPLE] Starting basic transcription for human verification...');
+    console.log('🎵 [LYRICS-AWARE] Starting lyrics-aware transcription...');
+    console.log('📝 [LYRICS-AWARE] User lyrics preview:', input.userLyrics.substring(0, 100) + '...');
     
-    const result = await simpleTranscribePrompt(input);
+    const result = await lyricsAwareTranscribePrompt(input);
     
     if (!result.output?.srtContent) {
-      throw new Error('Failed to get SRT content from simple transcription');
+      throw new Error('Failed to get SRT content from lyrics-aware transcription');
     }
     
     let { srtContent, audioDuration, segmentCount } = result.output;
@@ -191,13 +196,13 @@ export const simpleTranscriptionFlow = ai.defineFlow(
     // Validate and fix SRT format before returning
     srtContent = validateAndFixSRT(srtContent);
     
-    console.log('🎤 [SIMPLE] Transcription complete:');
+    console.log('🎵 [LYRICS-AWARE] Transcription complete:');
     console.log(`  📊 Audio Duration: ${audioDuration}s`);
     console.log(`  📝 Segments Found: ${segmentCount}`);
-    console.log('📝 [SIMPLE SRT]:');
-    console.log('==================== SIMPLE SRT START ====================');
+    console.log('📝 [LYRICS-AWARE SRT]:');
+    console.log('==================== LYRICS-AWARE SRT START ====================');
     console.log(srtContent);
-    console.log('==================== SIMPLE SRT END ====================');
+    console.log('==================== LYRICS-AWARE SRT END ====================');
     
     return {
       srtContent,
@@ -207,8 +212,8 @@ export const simpleTranscriptionFlow = ai.defineFlow(
   }
 );
 
-export async function simpleTranscription(
-  input: SimpleTranscriptionInput
-): Promise<SimpleTranscriptionOutput> {
-  return simpleTranscriptionFlow(input);
+export async function lyricsAwareTranscription(
+  input: LyricsAwareTranscriptionInput
+): Promise<LyricsAwareTranscriptionOutput> {
+  return lyricsAwareTranscriptionFlow(input);
 } 

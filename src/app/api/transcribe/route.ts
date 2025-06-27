@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { simpleTranscription } from '@/ai/flows/simple-transcription';
+import { lyricsAwareTranscription } from '@/ai/flows/lyrics-aware-transcription';
 
 export async function POST(request: NextRequest) {
   try {
-    const { audioDataUri } = await request.json();
+    const { audioDataUri, userLyrics } = await request.json();
 
     if (!audioDataUri) {
       return NextResponse.json(
@@ -12,9 +12,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('🎤 [API] Starting simple transcription...');
+    if (!userLyrics) {
+      return NextResponse.json(
+        { error: 'User lyrics are required' },
+        { status: 400 }
+      );
+    }
+
+    console.log('🎤 [API] Starting lyrics-aware transcription...');
     
-    const result = await simpleTranscription({ audioDataUri });
+    const result = await lyricsAwareTranscription({ audioDataUri, userLyrics });
     
     console.log('🎤 [API] Transcription complete');
     
